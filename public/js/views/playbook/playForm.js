@@ -1,5 +1,5 @@
 import { createPlay, updatePlay, duplicatePlay, setPlayActive, getActiveVersion } from '../../data.js';
-import { createFieldDesigner } from '../fieldDesigner.js';
+import { createFieldDesigner } from '../../playbook/fieldDesigner.js';
 import {
   categoriesForSide,
   YARDAGE_DEPTH,
