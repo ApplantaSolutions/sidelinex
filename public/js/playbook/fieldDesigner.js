@@ -1,26 +1,35 @@
-import { ROUTE_TEMPLATES, defaultEndpoint, computeRoutePoints, approxYardsFromDelta, directionFromDelta } from '../constants/routes.js';
+import {
+  ROUTE_TEMPLATES,
+  defaultEndpoint,
+  computeRoutePoints,
+  approxYardsFromDelta,
+  directionFromDelta,
+  routeDescription,
+  getTiming,
+  DELAY_OPTIONS_SECONDS,
+} from '../constants/routes.js';
 import { SUGGESTED_SLOTS } from '../constants/football.js';
+import { interpolateAlongPath, buildPlaySchedule, computeFrame } from './animation.js';
 
-// SVG football-field workspace, rebuilt to fix a real bug: the previous
-// version called a full re-render on every pointermove during a drag,
-// which destroyed and recreated the SVG element the drag handler was
-// still holding a reference to — causing exactly the "jumping / offset /
-// jitter" behavior reported. This version enforces one rule everywhere:
-// during an active gesture, only cached element references are mutated
-// directly (transform/points attributes) — the DOM structure is never
-// rebuilt until the gesture ends. Full render() only runs between
-// gestures.
+// SVG football-field workspace. Core rule, unchanged since the interaction
+// rebuild and extended (not weakened) to cover animation: during any
+// active gesture OR animation, only cached element references are
+// mutated directly (transform/points attributes) — the DOM structure is
+// never rebuilt until the gesture/animation ends. Full render() only runs
+// between them. Animation additionally never writes to design.positions
+// or design.routes while running — it reads from them, and always
+// restores every marker to its true design position via a normal
+// render() the moment it stops (Watch Play exit) or completes (Route
+// Preview's return-to-start).
 //
-// Interaction model, redesigned to remove all gesture ambiguity:
-//  - A guided step-by-step flow adds each new player: pick them, tap the
-//    field to place them, pick a route template (or draw a custom one),
-//    adjust the single gold-dot endpoint handle, pick their job.
-//  - Once players exist, two EXPLICIT, mutually exclusive modes handle
-//    adjustments: "Move Player" (drag repositions) and "Edit Route" (tap
-//    jumps into route adjustment). Only one is ever active, always shown.
-//  - Nothing is ever both "the move gesture" and "the draw gesture" at
-//    the same time — which screen/mode you're in determines what a touch
-//    on a marker means, never an ambiguous default.
+// Interaction model:
+//  - Guided flow for a new player: pick them, tap the field to place
+//    them, pick a route template, PREVIEW it (animate + return to start,
+//    accept or try another), adjust the gold-dot handle, pick their job.
+//  - Explicit, mutually exclusive "Move Player" / "Edit Route" modes for
+//    adjusting existing players afterward.
+//  - Watch Play replaces those two modes' controls (never coexists with
+//    them) while it runs, and marker gestures no-op entirely during it.
 
 const VIEW_W = 400;
 const VIEW_H = 500;
@@ -28,6 +37,8 @@ const LOS_Y_NORM = 0.72;
 const LOS_SNAP_THRESHOLD = 0.035;
 const MARKER_R = 22;
 const HANDLE_R = 16;
+const PREVIEW_RUN_MS = 1000;
+const PREVIEW_RETURN_MS = 400;
 
 const JOBS = [
   { value: 'primary', label: 'PRIMARY', desc: "We want to get them the ball." },
@@ -41,14 +52,12 @@ export function createFieldDesigner(container, { initialDesign, knownSlots = [],
     ? structuredClone(initialDesign)
     : { positions: {}, routes: {} };
 
-  // Seed placeholder entries (no position yet) for slots that exist in the
-  // parent form's assignments but have no drawn design yet (e.g. a legacy
-  // play created before the Designer existed).
   const unplacedKnownSlots = knownSlots.filter((s) => !design.positions[s]);
 
-  const nav = { screen: 'overview', activeSlot: null, mode: null, customDrawPoints: null };
-  const elRefs = { markers: new Map(), routes: new Map(), handle: null, svg: null, ctm: null };
+  const nav = { screen: 'overview', activeSlot: null, mode: null, previewRoute: null };
+  const elRefs = { markers: new Map(), routes: new Map(), handle: null, svg: null };
   const undoStack = [];
+  const anim = { previewRafId: null, watchPlay: null };
 
   render();
 
@@ -77,12 +86,13 @@ export function createFieldDesigner(container, { initialDesign, knownSlots = [],
 
     renderBanner();
     renderControls();
+
+    if (nav.screen === 'route_preview' && nav.previewRoute) startRoutePreviewAnimation();
   }
 
   function renderBanner() {
     const banner = container.querySelector('#fd-banner');
-    const text = bannerText();
-    banner.innerHTML = `<p style="margin:0; font-size:17px; font-weight:700; color:var(--sx-white);">${text}</p>`;
+    banner.innerHTML = `<p style="margin:0; font-size:17px; font-weight:700; color:var(--sx-white);">${bannerText()}</p>`;
   }
 
   function bannerText() {
@@ -93,6 +103,10 @@ export function createFieldDesigner(container, { initialDesign, knownSlots = [],
         return `Now tap where <span style="color:var(--sx-gold)">${escapeHtml(nav.activeSlot)}</span> should stand.`;
       case 'pick_route':
         return `<span style="color:var(--sx-gold)">YOU'RE EDITING: ${escapeHtml(nav.activeSlot)}</span><br>Now pick their route.`;
+      case 'route_preview': {
+        const desc = routeDescription(nav.previewRoute?.routeType);
+        return `<span style="color:var(--sx-gold)">${escapeHtml((nav.previewRoute?.routeType || '').toUpperCase())}</span> &mdash; ${escapeHtml(desc)}`;
+      }
       case 'draw_custom':
         return `<span style="color:var(--sx-gold)">YOU'RE EDITING: ${escapeHtml(nav.activeSlot)}</span><br>Drag from ${escapeHtml(nav.activeSlot)} to draw where they go.`;
       case 'adjust_route':
@@ -102,6 +116,7 @@ export function createFieldDesigner(container, { initialDesign, knownSlots = [],
       case 'done_slot':
         return `Nice! <span style="color:var(--sx-gold)">${escapeHtml(nav.activeSlot)}</span> is all set.`;
       default: // overview
+        if (anim.watchPlay) return 'id="fd-watch-banner-placeholder"'; // replaced by watch banner below
         if (Object.keys(design.positions).length === 0) return "Tap '+ Add Player' to start building this play.";
         if (nav.mode === 'move') return 'Drag any player to move them.';
         if (nav.mode === 'route') return 'Tap a player to change or adjust their route.';
@@ -114,6 +129,7 @@ export function createFieldDesigner(container, { initialDesign, knownSlots = [],
     if (nav.screen === 'overview') return renderOverviewControls(el);
     if (nav.screen === 'pick_player') return renderPickPlayerControls(el);
     if (nav.screen === 'pick_route') return renderPickRouteControls(el);
+    if (nav.screen === 'route_preview') return renderRoutePreviewControls(el);
     if (nav.screen === 'adjust_route') return renderAdjustRouteControls(el);
     if (nav.screen === 'pick_job') return renderPickJobControls(el);
     if (nav.screen === 'done_slot') return renderDoneSlotControls(el);
@@ -124,7 +140,10 @@ export function createFieldDesigner(container, { initialDesign, knownSlots = [],
   // ---------- OVERVIEW ----------
 
   function renderOverviewControls(el) {
+    if (anim.watchPlay) return renderWatchPlayControls(el);
+
     const slots = Object.keys(design.positions);
+    const hasAnyRoute = Object.values(design.routes).some((r) => r?.points && r.points.length >= 2);
     el.innerHTML = `
       <div class="row-wrap" style="margin-bottom: var(--space-2);">
         <button type="button" class="btn ${nav.mode === 'move' ? 'btn-primary' : 'btn-secondary'}" id="fd-mode-move" ${slots.length === 0 ? 'disabled' : ''}>Move Player</button>
@@ -135,6 +154,7 @@ export function createFieldDesigner(container, { initialDesign, knownSlots = [],
           ${slots.map((s) => `<button type="button" class="chip ${nav.mode ? 'selected' : ''}" data-chip="${escapeAttr(s)}">${escapeHtml(s)}${design.routes[s]?.designation ? ' &middot; ' + design.routes[s].designation[0].toUpperCase() : ''}</button>`).join('')}
         </div>
       ` : ''}
+      ${hasAnyRoute ? '<button type="button" class="btn btn-primary btn-large" id="fd-watch-play" style="width:100%; margin-bottom:var(--space-2);">&#9654; WATCH PLAY</button>' : ''}
       <div class="row-wrap">
         <button type="button" class="btn btn-primary" id="fd-add-player">+ Add Player</button>
         <button type="button" class="btn btn-secondary" id="fd-undo">Undo</button>
@@ -147,6 +167,7 @@ export function createFieldDesigner(container, { initialDesign, knownSlots = [],
     el.querySelector('#fd-undo').addEventListener('click', undo);
     el.querySelector('#fd-clear').addEventListener('click', clearDesign);
     el.querySelector('#fd-help').addEventListener('click', showHelp);
+    if (hasAnyRoute) el.querySelector('#fd-watch-play').addEventListener('click', startWatchPlay);
 
     if (slots.length > 0) {
       el.querySelector('#fd-mode-move').addEventListener('click', () => {
@@ -166,19 +187,12 @@ export function createFieldDesigner(container, { initialDesign, knownSlots = [],
   function handleSlotTap(slot) {
     if (nav.mode === 'route') {
       nav.activeSlot = slot;
-      // Only jump straight to adjustment if a real drawn route exists —
-      // a route object can exist with no points (e.g. a job was picked
-      // after deleting the route), and that must go back to picking a
-      // route type, not into adjusting a route that isn't there.
       if (design.routes[slot]?.points) {
         goTo('adjust_route');
       } else {
         goTo('pick_route');
       }
     }
-    // In 'move' mode, selection happens via direct drag on the marker
-    // itself (see attachMarkerHandlers) — tapping a chip alone doesn't
-    // move anything, since a chip has no "where to move it to."
   }
 
   function clearDesign() {
@@ -201,10 +215,12 @@ export function createFieldDesigner(container, { initialDesign, knownSlots = [],
         <ol style="padding-left:20px; margin:0; font-size:17px; line-height:1.8;">
           <li>Pick a player.</li>
           <li>Put them on the field.</li>
-          <li>Pick their route.</li>
+          <li>Pick their route and watch it.</li>
+          <li>Use it, or try another.</li>
           <li>Move the gold dot if needed.</li>
           <li>Pick their job.</li>
           <li>Do the next player.</li>
+          <li>Press Watch Play to see it all come alive.</li>
           <li>Save your play.</li>
         </ol>
         <button type="button" class="btn btn-primary btn-large" id="fd-help-close" style="margin-top:var(--space-2); width:100%;">Got It</button>
@@ -249,8 +265,6 @@ export function createFieldDesigner(container, { initialDesign, knownSlots = [],
   }
 
   // ---------- PLACE PLAYER (tap the field) ----------
-  // Handled via a pointerup listener attached to the SVG background in
-  // attachFieldTapHandler(), active only while screen === 'place_player'.
 
   function placePlayer(point) {
     let pos = { x: point.x, y: point.y };
@@ -276,28 +290,78 @@ export function createFieldDesigner(container, { initialDesign, knownSlots = [],
 
   function pickRouteTemplate(routeType) {
     if (routeType === 'custom') {
-      nav.customDrawPoints = null;
       goTo('draw_custom');
       return;
     }
+    // Deliberately does NOT touch design.routes yet — this is a proposal
+    // only, shown via Route Preview, and only becomes real play data if
+    // "USE THIS ROUTE" is pressed. Nothing here is saved play data.
     const start = design.positions[nav.activeSlot];
     const flipped = start.x > 0.5;
     const end = defaultEndpoint(routeType, start, flipped);
     const points = computeRoutePoints(routeType, start, end);
+    nav.previewRoute = { points, routeType, endPoint: end, direction: directionFromDelta(start, end) };
+    goTo('route_preview');
+  }
+
+  // ---------- ROUTE PREVIEW (temporary, not saved until accepted) ----------
+
+  function renderRoutePreviewControls(el) {
+    el.innerHTML = `
+      <div class="row-wrap">
+        <button type="button" class="btn btn-primary btn-large" id="fd-use-route">&check; USE THIS ROUTE</button>
+        <button type="button" class="btn btn-secondary btn-large" id="fd-try-another">&#8635; TRY ANOTHER</button>
+      </div>
+      <button type="button" class="btn btn-link" id="fd-watch-again">&#9654; Watch Again</button>
+    `;
+    el.querySelector('#fd-use-route').addEventListener('click', acceptPreviewRoute);
+    el.querySelector('#fd-try-another').addEventListener('click', () => {
+      nav.previewRoute = null;
+      goTo('pick_route');
+    });
+    el.querySelector('#fd-watch-again').addEventListener('click', () => startRoutePreviewAnimation());
+  }
+
+  function acceptPreviewRoute() {
+    cancelPreviewAnimation();
     design.routes[nav.activeSlot] = {
-      points,
-      routeType,
-      endPoint: end,
-      direction: directionFromDelta(start, end),
+      points: nav.previewRoute.points,
+      routeType: nav.previewRoute.routeType,
+      endPoint: nav.previewRoute.endPoint,
+      direction: nav.previewRoute.direction,
+      timing: { phase: 'postsnap', startDelaySeconds: 0 },
       designation: design.routes[nav.activeSlot]?.designation || null,
     };
     undoStack.push({ type: 'route', slot: nav.activeSlot });
+    nav.previewRoute = null;
     emitChange();
     goTo('adjust_route');
   }
 
+  function startRoutePreviewAnimation() {
+    cancelPreviewAnimation();
+    const markerEl = elRefs.markers.get(nav.activeSlot);
+    const start = design.positions[nav.activeSlot];
+    if (!markerEl || !nav.previewRoute || !start) return;
+    const points = nav.previewRoute.points;
+
+    anim.previewRafId = animateAlongPath(markerEl, points, PREVIEW_RUN_MS, () => {
+      const last = points[points.length - 1];
+      anim.previewRafId = animateAlongPath(markerEl, [last, start], PREVIEW_RETURN_MS, () => {
+        markerEl.setAttribute('transform', `translate(${start.x * VIEW_W}, ${start.y * VIEW_H})`);
+        anim.previewRafId = null;
+      });
+    });
+  }
+
+  function cancelPreviewAnimation() {
+    if (anim.previewRafId) {
+      cancelAnimationFrame(anim.previewRafId);
+      anim.previewRafId = null;
+    }
+  }
+
   // ---------- DRAW CUSTOM ----------
-  // Drag capture attached in attachFieldTapHandler() while screen === 'draw_custom'.
 
   function renderDrawCustomControls(el) {
     el.innerHTML = `<button type="button" class="btn btn-link" id="fd-back-to-templates">&larr; Choose a route instead</button>`;
@@ -313,6 +377,7 @@ export function createFieldDesigner(container, { initialDesign, knownSlots = [],
       routeType: 'custom',
       endPoint: end,
       direction: directionFromDelta(start, end),
+      timing: { phase: 'postsnap', startDelaySeconds: 0 },
       designation: design.routes[nav.activeSlot]?.designation || null,
     };
     undoStack.push({ type: 'route', slot: nav.activeSlot });
@@ -320,12 +385,15 @@ export function createFieldDesigner(container, { initialDesign, knownSlots = [],
     goTo('adjust_route');
   }
 
-  // ---------- ADJUST ROUTE (gold dot) ----------
+  // ---------- ADJUST ROUTE (gold dot + timing) ----------
 
   function renderAdjustRouteControls(el) {
     const route = design.routes[nav.activeSlot];
     const start = design.positions[nav.activeSlot];
     const yards = route && route.endPoint ? approxYardsFromDelta(start, route.endPoint) : null;
+    const timing = getTiming(route);
+    const timingIsNonDefault = timing.phase === 'presnap' || timing.startDelaySeconds > 0;
+
     el.innerHTML = `
       ${yards != null ? `<p class="hint">About ${yards} yards &middot; breaks ${route.direction}</p>` : ''}
       <div class="row-wrap">
@@ -334,6 +402,22 @@ export function createFieldDesigner(container, { initialDesign, knownSlots = [],
       <div class="row-wrap" style="margin-top:var(--space-1);">
         <button type="button" class="btn btn-link" id="fd-change-route">Change Route Type</button>
         <button type="button" class="btn btn-link" id="fd-delete-route">Delete This Route</button>
+        <button type="button" class="btn btn-link" id="fd-timing-toggle">
+          ${timingIsNonDefault ? `Timing: ${timing.phase === 'presnap' ? 'Before Snap' : 'Delay ' + timing.startDelaySeconds + 's'}` : 'Timing (optional)'}
+        </button>
+      </div>
+      <div id="fd-timing-panel" class="card" style="background:var(--sx-charcoal-2); margin-top:var(--space-2);" ${timingIsNonDefault ? '' : 'hidden'}>
+        <p class="hint" style="margin-bottom:8px;">START</p>
+        <div class="row-wrap" style="margin-bottom:var(--space-2);">
+          <button type="button" class="chip ${timing.phase === 'postsnap' ? 'selected' : ''}" data-start="postsnap">At Snap</button>
+          <button type="button" class="chip ${timing.phase === 'presnap' ? 'selected' : ''}" data-start="presnap">Before Snap</button>
+        </div>
+        <div id="fd-delay-section" ${timing.phase === 'presnap' ? 'hidden' : ''}>
+          <p class="hint" style="margin-bottom:8px;">DELAY</p>
+          <div class="row-wrap">
+            ${DELAY_OPTIONS_SECONDS.map((d) => `<button type="button" class="chip ${timing.startDelaySeconds === d ? 'selected' : ''}" data-delay="${d}">${d === 0 ? 'None' : d + ' sec'}</button>`).join('')}
+          </div>
+        </div>
       </div>
     `;
     el.querySelector('#fd-route-good').addEventListener('click', () => goTo('pick_job'));
@@ -342,6 +426,25 @@ export function createFieldDesigner(container, { initialDesign, knownSlots = [],
       delete design.routes[nav.activeSlot];
       emitChange();
       goTo('pick_job');
+    });
+    el.querySelector('#fd-timing-toggle').addEventListener('click', () => {
+      const panel = el.querySelector('#fd-timing-panel');
+      panel.hidden = !panel.hidden;
+    });
+    el.querySelectorAll('[data-start]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const phase = btn.dataset.start;
+        route.timing = { phase, startDelaySeconds: phase === 'presnap' ? 0 : (route.timing?.startDelaySeconds || 0) };
+        emitChange();
+        renderAdjustRouteControls(el);
+      });
+    });
+    el.querySelectorAll('[data-delay]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        route.timing = { phase: route.timing?.phase || 'postsnap', startDelaySeconds: Number(btn.dataset.delay) };
+        emitChange();
+        renderAdjustRouteControls(el);
+      });
     });
   }
 
@@ -367,7 +470,14 @@ export function createFieldDesigner(container, { initialDesign, knownSlots = [],
 
   function pickJob(job) {
     if (!design.routes[nav.activeSlot]) {
-      design.routes[nav.activeSlot] = { points: null, routeType: null, endPoint: null, direction: null, designation: job || null };
+      design.routes[nav.activeSlot] = {
+        points: null,
+        routeType: null,
+        endPoint: null,
+        direction: null,
+        timing: { phase: 'postsnap', startDelaySeconds: 0 },
+        designation: job || null,
+      };
     } else {
       design.routes[nav.activeSlot].designation = job || null;
     }
@@ -388,9 +498,111 @@ export function createFieldDesigner(container, { initialDesign, knownSlots = [],
     el.querySelector('#fd-done').addEventListener('click', () => goTo('overview'));
   }
 
+  // ---------- WATCH PLAY ----------
+
+  function startWatchPlay() {
+    const schedule = buildPlaySchedule(design);
+    anim.watchPlay = { schedule, startTs: performance.now(), pausedElapsed: 0, isPaused: false, lastPhase: null, rafId: null };
+    nav.mode = null;
+    render(); // one clean rebuild: swaps Overview controls to Play/Pause/Restart/Exit
+    runWatchPlayFrame();
+  }
+
+  function renderWatchPlayControls(el) {
+    el.innerHTML = `
+      <div id="fd-watch-banner" style="margin-bottom: var(--space-2); text-align:center;"></div>
+      <div class="row-wrap">
+        <button type="button" class="btn btn-primary btn-large" id="fd-play-pause"></button>
+        <button type="button" class="btn btn-secondary btn-large" id="fd-restart">&#8635; Restart / Replay</button>
+        <button type="button" class="btn btn-link" id="fd-exit-watch">Exit</button>
+      </div>
+    `;
+    updatePlayPauseButtonLabel();
+    el.querySelector('#fd-play-pause').addEventListener('click', toggleWatchPause);
+    el.querySelector('#fd-restart').addEventListener('click', restartWatchPlay);
+    el.querySelector('#fd-exit-watch').addEventListener('click', exitWatchPlay);
+    updateWatchBanner(anim.watchPlay.lastPhase || (anim.watchPlay.schedule.hasPresnap ? 'presnap' : 'postsnap'));
+  }
+
+  function runWatchPlayFrame() {
+    const wp = anim.watchPlay;
+    if (!wp || wp.isPaused) return;
+    const elapsedS = (performance.now() - wp.startTs) / 1000 + wp.pausedElapsed;
+    const frame = computeFrame(design, wp.schedule, elapsedS);
+
+    Object.entries(frame.positions).forEach(([slot, pos]) => {
+      const markerEl = elRefs.markers.get(slot);
+      if (markerEl) markerEl.setAttribute('transform', `translate(${pos.x * VIEW_W}, ${pos.y * VIEW_H})`);
+    });
+
+    if (frame.phaseLabel !== wp.lastPhase) {
+      wp.lastPhase = frame.phaseLabel;
+      updateWatchBanner(frame.phaseLabel);
+    }
+
+    if (frame.phaseLabel === 'done') {
+      wp.isPaused = true;
+      updatePlayPauseButtonLabel();
+      return;
+    }
+    wp.rafId = requestAnimationFrame(runWatchPlayFrame);
+  }
+
+  function updateWatchBanner(phaseLabel) {
+    const bannerEl = container.querySelector('#fd-watch-banner');
+    if (!bannerEl) return;
+    const isSnap = phaseLabel === 'snap';
+    const text = phaseLabel === 'presnap' ? 'Pre-snap motion&hellip;' : isSnap ? 'SNAP!' : phaseLabel === 'done' ? 'Play finished.' : 'Watching the play&hellip;';
+    bannerEl.innerHTML = `<span style="font-size:${isSnap ? '30px' : '18px'}; font-weight:800; color:${isSnap ? 'var(--sx-gold)' : 'var(--sx-white)'};">${text}</span>`;
+  }
+
+  function updatePlayPauseButtonLabel() {
+    const btn = container.querySelector('#fd-play-pause');
+    if (btn) btn.textContent = anim.watchPlay?.isPaused ? '▶ Play' : '⏸ Pause';
+  }
+
+  function toggleWatchPause() {
+    const wp = anim.watchPlay;
+    if (!wp) return;
+    if (wp.isPaused) {
+      wp.isPaused = false;
+      wp.startTs = performance.now();
+      updatePlayPauseButtonLabel();
+      runWatchPlayFrame();
+    } else {
+      wp.pausedElapsed += (performance.now() - wp.startTs) / 1000;
+      wp.isPaused = true;
+      if (wp.rafId) cancelAnimationFrame(wp.rafId);
+      updatePlayPauseButtonLabel();
+    }
+  }
+
+  function restartWatchPlay() {
+    const wp = anim.watchPlay;
+    if (!wp) return;
+    if (wp.rafId) cancelAnimationFrame(wp.rafId);
+    wp.startTs = performance.now();
+    wp.pausedElapsed = 0;
+    wp.isPaused = false;
+    wp.lastPhase = null;
+    updatePlayPauseButtonLabel();
+    runWatchPlayFrame();
+  }
+
+  function exitWatchPlay() {
+    const wp = anim.watchPlay;
+    if (wp?.rafId) cancelAnimationFrame(wp.rafId);
+    anim.watchPlay = null;
+    // Full rebuild — the guarantee that every marker returns exactly to
+    // its true design position, regardless of any float drift during
+    // animation, comes from reading design.positions fresh here.
+    render();
+  }
+
   // ---------- navigation ----------
 
   function goTo(screen) {
+    cancelPreviewAnimation();
     nav.screen = screen;
     if (screen === 'overview') nav.activeSlot = null;
     render();
@@ -412,7 +624,7 @@ export function createFieldDesigner(container, { initialDesign, knownSlots = [],
   function drawMarker(svg, slot) {
     const pos = design.positions[slot];
     const isActive = slot === nav.activeSlot && nav.screen !== 'overview';
-    const isPlaceable = nav.screen === 'place_player'; // not-yet-placed slot being set up separately
+    const isPlaceable = nav.screen === 'place_player';
     const g = svgEl('g', { transform: `translate(${pos.x * VIEW_W}, ${pos.y * VIEW_H})`, style: 'cursor:pointer;' });
     g.appendChild(
       svgEl('circle', {
@@ -432,7 +644,12 @@ export function createFieldDesigner(container, { initialDesign, knownSlots = [],
   }
 
   function drawRoute(svg, slot) {
-    const route = design.routes[slot];
+    let route = design.routes[slot];
+    // During Route Preview, the proposed route isn't saved data yet — it
+    // lives in nav.previewRoute and is drawn for the active slot only.
+    if (nav.screen === 'route_preview' && slot === nav.activeSlot && nav.previewRoute) {
+      route = { points: nav.previewRoute.points, designation: null };
+    }
     if (!route || !route.points || route.points.length < 2) return;
     const isPrimary = route.designation === 'primary';
     const isSecondary = route.designation === 'secondary';
@@ -465,6 +682,10 @@ export function createFieldDesigner(container, { initialDesign, knownSlots = [],
 
   function attachMarkerHandlers(markerEl, slot) {
     markerEl.addEventListener('pointerdown', (e) => {
+      // Isolation rule: while Watch Play is running, no marker gesture is
+      // ever live — the mode buttons aren't even shown, but this guards
+      // the handler itself too, defensively.
+      if (anim.watchPlay) return;
       if (nav.screen === 'overview' && nav.mode === 'move') {
         e.preventDefault();
         e.stopPropagation();
@@ -569,8 +790,6 @@ export function createFieldDesigner(container, { initialDesign, knownSlots = [],
     });
   }
 
-  // Field-background tap/drag — behavior depends entirely on the current
-  // screen, attached fresh each render() so it always matches nav.screen.
   function attachFieldTapHandler(svg) {
     if (nav.screen === 'place_player') {
       svg.addEventListener('pointerdown', function onDown(e) {
@@ -607,9 +826,6 @@ export function createFieldDesigner(container, { initialDesign, knownSlots = [],
           window.removeEventListener('pointermove', onMove);
           window.removeEventListener('pointerup', onUp);
           if (drawn.length < 2) {
-            // Too short to count as a real drag (a tap, not a draw) — the
-            // {once:true} listener below has already fired, so re-render
-            // to attach a fresh one rather than leaving the field dead.
             render();
           } else {
             finishCustomDraw(drawn);
@@ -619,6 +835,31 @@ export function createFieldDesigner(container, { initialDesign, knownSlots = [],
         window.addEventListener('pointerup', onUp);
       }, { once: true });
     }
+  }
+
+  // ---------- shared animation helper ----------
+
+  /**
+   * Animates a marker element along `points` over `durationMs`, updating
+   * only its transform attribute (never touching DOM structure). Returns
+   * the current rAF id so the caller can cancel it. Calls `onDone` once,
+   * after which the marker is guaranteed to be exactly at the last point.
+   */
+  function animateAlongPath(markerEl, points, durationMs, onDone) {
+    const startTime = performance.now();
+    let rafId;
+    function frame(now) {
+      const t = Math.min(1, (now - startTime) / durationMs);
+      const pos = interpolateAlongPath(points, t);
+      markerEl.setAttribute('transform', `translate(${pos.x * VIEW_W}, ${pos.y * VIEW_H})`);
+      if (t < 1) {
+        rafId = requestAnimationFrame(frame);
+      } else if (onDone) {
+        onDone();
+      }
+    }
+    rafId = requestAnimationFrame(frame);
+    return rafId;
   }
 
   // ---------- helpers ----------
@@ -645,15 +886,11 @@ export function createFieldDesigner(container, { initialDesign, knownSlots = [],
   }
 
   function destroy() {
+    cancelPreviewAnimation();
+    if (anim.watchPlay?.rafId) cancelAnimationFrame(anim.watchPlay.rafId);
     container.innerHTML = '';
   }
 
-  /**
-   * External removal — used when a slot is removed from the parent form's
-   * Assignments card (outside any Designer gesture), so its position/
-   * route are cleaned up here too. Safe to call anytime since it always
-   * follows with a full render(), never mid-gesture.
-   */
   function removeSlot(label) {
     delete design.positions[label];
     delete design.routes[label];
@@ -664,7 +901,6 @@ export function createFieldDesigner(container, { initialDesign, knownSlots = [],
 
   return { getDesign, removeSlot, destroy };
 
-  // ---- small local utilities kept at the bottom for readability ----
   function svgPointFromClient(svg, inv, clientX, clientY) {
     const pt = svg.createSVGPoint();
     pt.x = clientX;

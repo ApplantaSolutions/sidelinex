@@ -222,7 +222,6 @@ export async function renderPlayForm(root, team, claims, side, onDone, playId, e
 
     root.querySelector('#play-form').addEventListener('submit', handleSubmit);
   }
-  }
 
   function syncIntentFromDesigner(design) {
     const primary = Object.entries(design.routes).find(([, r]) => r.designation === 'primary')?.[0];

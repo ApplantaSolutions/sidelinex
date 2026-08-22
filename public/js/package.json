@@ -1,0 +1,5 @@
+{
+  "private": true,
+  "type": "module",
+  "description": "Not deployed (see firebase.json hosting.ignore) — exists only so Node's built-in test runner recognizes these files as ES modules for automated tests of pure, DOM-free logic (e.g. playbook/animation.test.js)."
+}
