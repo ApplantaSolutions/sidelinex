@@ -1,8 +1,10 @@
 // In-memory mock data layer — implements the exact same function names and
 // shapes as public/js/data-real.js, so views never know the difference.
 // Used only when the URL contains ?dev=1 (see data.js). Nothing here ever
-// touches real Firebase. Data resets on every page reload — this is a
-// preview aid, not persistent storage.
+// touches real Firebase, and nothing here can grant access to real data —
+// every function operates purely on the in-memory `state` object below.
+// Data resets on every page reload — this is a preview aid, not
+// persistent storage. See docs/DESIGN-PRINCIPLES.md's dev-mode safety note.
 
 const TEAM_ID = 'dev-team-1';
 const SEASON_ID = 'dev-season-1';
@@ -41,51 +43,51 @@ const state = {
 
 let nextPlayId = 1;
 
-// Seed a couple of realistic example plays so the list view isn't empty.
-seedPlay({
-  side: 'offense',
-  name: 'Green Grass',
-  wristbandCode: '11',
-  category: 'pass',
-  formation: 'Trips Right',
-  favorite: true,
-  active: true,
-  tags: { beatsMan: false, beatsZone: true, beatsPressure: false, yardageDepth: 'deep', goalLine: false, conversion: false, explosive: true, safe: false, riskLevel: 'medium' },
-  supplementalTags: ['clear-out', 'crossing'],
-  intendedYardage: 25,
-  intent: {
-    description: 'Clear deep defenders and create underneath space for the center/WR2 crossing action.',
-    primaryTargetSlot: 'Center',
-    secondaryTargetSlot: 'WR2',
-    decoySlots: ['WR1', 'WR4'],
+seedPlay(
+  {
+    side: 'offense',
+    name: 'Green Grass',
+    wristbandCode: '11',
+    category: 'pass',
+    formation: 'Trips Right',
+    favorite: true,
+    active: true,
+    tags: { beatsMan: false, beatsZone: true, beatsPressure: false, yardageDepth: 'deep', goalLine: false, conversion: false, explosive: true, safe: false, riskLevel: 'medium' },
+    supplementalTags: ['clear-out', 'crossing'],
+    intendedYardage: 25,
+    intent: {
+      description: 'Clear deep defenders and create underneath space for the center/WR2 crossing action.',
+      primaryTargetSlot: 'Center',
+      secondaryTargetSlot: 'WR2',
+      decoySlots: ['WR1', 'WR4'],
+    },
+    effectiveness: { vsMan: 'neutral', vsZone: 'strong', vsPressure: 'neutral' },
   },
-  effectiveness: { vsMan: 'neutral', vsZone: 'strong', vsPressure: 'neutral' },
-}, {
-  WR1: { route: 'Go', roleClassification: 'decoy_clearout', job: 'Get vertical immediately and force the defender to respect the deep route.', why: 'Opens underneath space for another receiver.', key: "Don't slow down just because you're not the primary target." },
-  Center: { route: 'Drag', roleClassification: 'primary_target', job: 'Cross the field underneath at 5 yards.', why: 'Designed target once the deep routes clear the middle.', key: 'Sell the block first, then release.' },
-});
+  {
+    WR1: { route: 'Go', roleClassification: 'decoy_clearout', job: 'Get vertical immediately and force the defender to respect the deep route.', why: 'Opens underneath space for another receiver.', key: "Don't slow down just because you're not the primary target." },
+    Center: { route: 'Drag', roleClassification: 'primary_target', job: 'Cross the field underneath at 5 yards.', why: 'Designed target once the deep routes clear the middle.', key: 'Sell the block first, then release.' },
+  }
+);
 
-seedPlay({
-  side: 'offense',
-  name: 'Jet Right',
-  wristbandCode: '12',
-  category: 'run',
-  formation: 'Jet',
-  favorite: false,
-  active: true,
-  tags: { beatsMan: true, beatsZone: false, beatsPressure: true, yardageDepth: 'short', goalLine: false, conversion: true, explosive: false, safe: true, riskLevel: 'low' },
-  supplementalTags: ['edge'],
-  intendedYardage: 6,
-  intent: {
-    description: 'Test defensive pursuit toward the edge with a safe, reliable gain.',
-    primaryTargetSlot: null,
-    secondaryTargetSlot: null,
-    decoySlots: [],
+seedPlay(
+  {
+    side: 'offense',
+    name: 'Jet Right',
+    wristbandCode: '12',
+    category: 'run',
+    formation: 'Jet',
+    favorite: false,
+    active: true,
+    tags: { beatsMan: true, beatsZone: false, beatsPressure: true, yardageDepth: 'short', goalLine: false, conversion: true, explosive: false, safe: true, riskLevel: 'low' },
+    supplementalTags: ['edge'],
+    intendedYardage: 6,
+    intent: { description: 'Test defensive pursuit toward the edge with a safe, reliable gain.', primaryTargetSlot: null, secondaryTargetSlot: null, decoySlots: [] },
+    effectiveness: { vsMan: 'strong', vsZone: 'neutral', vsPressure: 'strong' },
   },
-  effectiveness: { vsMan: 'strong', vsZone: 'neutral', vsPressure: 'strong' },
-}, {
-  Amani: { route: 'Jet Sweep', roleClassification: 'ball_carrier', job: 'Take the handoff and get to the edge fast.', why: 'Primary ball carrier on this call.', key: 'Press the hole, then bounce outside if it closes.' },
-});
+  {
+    Amani: { route: 'Jet Sweep', roleClassification: 'ball_carrier', job: 'Take the handoff and get to the edge fast.', why: 'Primary ball carrier on this call.', key: 'Press the hole, then bounce outside if it closes.' },
+  }
+);
 
 function seedPlay(playData, assignments) {
   const id = `dev-play-${nextPlayId++}`;
@@ -93,7 +95,7 @@ function seedPlay(playData, assignments) {
   const versionId = `${id}-v1`;
   state.plays.push({ id, ...playData, activeVersionId: versionId, createdAt: now, updatedAt: now });
   state.playVersions[id] = {
-    [versionId]: { id: versionId, versionNumber: 1, changelogNote: 'Initial version', diagramUrl: null, assignments, createdAt: now },
+    [versionId]: { id: versionId, versionNumber: 1, changelogNote: 'Initial version', diagramUrl: null, assignments, fieldDesign: null, createdAt: now },
   };
 }
 
@@ -121,8 +123,22 @@ export async function getPlayerProfile() {
   return { displayNickname: null, avatarUrl: null, personalGoals: null };
 }
 
-export async function listPlays(_teamId, { side } = {}) {
-  const plays = side ? state.plays.filter((p) => p.side === side) : state.plays;
+/**
+ * Dev-only, mock-layer equivalent of the coach's addPlayer action.
+ * Deliberately separate from public/js/auth.js's real addPlayer (which
+ * calls a live Cloud Function) — dev mode must never attempt a real
+ * network call toward the production backend. See data.js / this file's
+ * header comment.
+ */
+export async function addPlayerMock({ firstName, lastInitial, jerseyNumber }) {
+  const id = `dev-p-${state.players.length + 1}`;
+  state.players.push({ id, firstName, lastInitial: lastInitial || '', jerseyNumber: jerseyNumber ? Number(jerseyNumber) : null, generalPosition: null, active: true });
+  return { playerId: id, accessCode: '0000' };
+}
+
+export async function listPlays(_teamId, { side, includeArchived = false } = {}) {
+  let plays = side ? state.plays.filter((p) => p.side === side) : state.plays;
+  if (!includeArchived) plays = plays.filter((p) => p.active !== false);
   return [...plays].sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
 }
 
@@ -130,22 +146,45 @@ export async function getPlay(_teamId, playId) {
   return state.plays.find((p) => p.id === playId) || null;
 }
 
-export async function createPlay(_teamId, playData, assignments) {
+export async function createPlay(_teamId, playData, assignments, fieldDesign) {
   const id = `dev-play-${nextPlayId++}`;
   const now = new Date().toISOString();
   const versionId = `${id}-v1`;
   state.plays.unshift({ id, ...playData, activeVersionId: versionId, active: true, createdAt: now, updatedAt: now });
   state.playVersions[id] = {
-    [versionId]: { id: versionId, versionNumber: 1, changelogNote: 'Initial version', diagramUrl: playData.diagramUrl || null, assignments: assignments || {}, createdAt: now },
+    [versionId]: { id: versionId, versionNumber: 1, changelogNote: 'Initial version', diagramUrl: playData.diagramUrl || null, assignments: assignments || {}, fieldDesign: fieldDesign || null, createdAt: now },
   };
   return { id, versionId };
 }
 
-export async function updatePlay(_teamId, playId, playData) {
+export async function updatePlay(_teamId, playId, playData, assignments, fieldDesign) {
   const idx = state.plays.findIndex((p) => p.id === playId);
-  if (idx !== -1) {
-    state.plays[idx] = { ...state.plays[idx], ...playData, updatedAt: new Date().toISOString() };
+  if (idx === -1) return;
+  state.plays[idx] = { ...state.plays[idx], ...playData, updatedAt: new Date().toISOString() };
+  const versionId = state.plays[idx].activeVersionId;
+  if (versionId && state.playVersions[playId]?.[versionId]) {
+    state.playVersions[playId][versionId] = {
+      ...state.playVersions[playId][versionId],
+      diagramUrl: playData.diagramUrl ?? null,
+      assignments: assignments || {},
+      fieldDesign: fieldDesign || null,
+    };
   }
+}
+
+export async function duplicatePlay(teamId, playId) {
+  const original = await getPlay(teamId, playId);
+  if (!original) throw new Error('Play not found');
+  const versionId = original.activeVersionId;
+  const version = state.playVersions[playId]?.[versionId];
+  const { id, activeVersionId, createdAt, updatedAt, ...playFields } = original;
+  const copyData = { ...playFields, name: `${original.name} (Copy)`, wristbandCode: '' };
+  return createPlay(teamId, copyData, version?.assignments || {}, version?.fieldDesign || null);
+}
+
+export async function setPlayActive(_teamId, playId, active) {
+  const idx = state.plays.findIndex((p) => p.id === playId);
+  if (idx !== -1) state.plays[idx].active = active;
 }
 
 export async function getActiveVersion(_teamId, playId, versionId) {

@@ -7,4 +7,12 @@ export { getTeam } from './models/team.js';
 export { getSeason } from './models/season.js';
 export { getRuleConfig } from './models/ruleConfig.js';
 export { listActivePlayers, getPlayer, getPlayerProfile } from './models/player.js';
-export { listPlays, getPlay, createPlay, updatePlay, getActiveVersion } from './models/play.js';
+export {
+  listPlays,
+  getPlay,
+  createPlay,
+  updatePlay,
+  duplicatePlay,
+  setPlayActive,
+  getActiveVersion,
+} from './models/play.js';

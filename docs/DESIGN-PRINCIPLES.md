@@ -49,6 +49,36 @@ future milestones don't have to re-derive them.)
 11. Build first for the real-world Milestone 1 beta team without
     preventing later expansion to other teams/coaches.
 
+## Dev Preview Mode Safety (`?dev=1`)
+
+Added in Milestone 2 so the UI could be reviewed while Milestone 1's auth
+Cloud Functions were blocked by an external Firebase billing issue. Real
+security guarantees that make this safe:
+
+- `public/js/data.js` is the *only* place the dev/real decision is made.
+  With `?dev=1`, it swaps in `public/js/dev/mock/index.js` — a pure
+  in-memory module with **zero Firebase imports**. It cannot read or write
+  real Firestore data because it never calls Firestore at all.
+- Firestore/Storage security rules never look at any client-side flag —
+  only `request.auth.token`. A real user visiting the real production URL
+  with `?dev=1` appended would see fake seeded data rendered from memory,
+  never real team data, because the mock layer physically cannot reach it.
+- Every action that would normally call a real, privileged Cloud Function
+  (e.g. Add Player) has an explicit `isDevMode` branch routing to a mock
+  equivalent instead (`addPlayerMock`) — this was a real gap found and
+  fixed during Milestone 2 (the dev-mode Add Player button was originally
+  still calling the live `addPlayer` Cloud Function, which would have
+  failed loudly rather than succeeded insecurely, but was sloppy and is
+  now fixed to never attempt the real call at all).
+- A `console.warn` fires whenever dev mode is active, so it's never
+  silently mistaken for a real session even by someone inspecting devtools.
+
+**Before any real public beta launch:** remove the `?dev=1` code path
+entirely, or gate it behind something stronger than a URL parameter (e.g.
+only active when `location.hostname === 'localhost'`). Tracked here so it
+isn't forgotten once Milestone 1 unblocks and this stops being needed
+day-to-day.
+
 ## Coach-Owned vs. Player-Editable Data
 
 Enforced at the schema and security-rule level starting in Milestone 1,

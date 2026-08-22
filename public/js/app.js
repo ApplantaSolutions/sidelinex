@@ -11,7 +11,13 @@ async function start() {
     // Local preview only — see public/js/data.js. Skips real Firebase Auth
     // entirely and goes straight to the coach dashboard against in-memory
     // mock data, so the UI can be reviewed while Milestone 1's auth Cloud
-    // Functions are blocked. Never used in production (?dev=1 required).
+    // Functions are blocked. This can NEVER read or write real Firestore
+    // data — data.js swaps in a pure in-memory mock module, not a
+    // permissions bypass, and real security still comes entirely from
+    // firestore.rules regardless of any client-side flag. MUST be removed
+    // (or gated behind a build-time flag) before any real public beta —
+    // see docs/DESIGN-PRINCIPLES.md's "Dev Preview Mode Safety" section.
+    console.warn('[SidelineX] DEV PREVIEW MODE — showing mock data only, not connected to any real team.');
     showDashboard({ teamId: 'dev-team-1', role: 'coach' });
     return;
   }

@@ -27,7 +27,14 @@ export const {
   getPlay,
   createPlay,
   updatePlay,
+  duplicatePlay,
+  setPlayActive,
   getActiveVersion,
 } = impl;
+
+// Only present in the mock module — real data-real.js has no equivalent
+// because the real Add Player flow always goes through the auth Cloud
+// Function (public/js/auth.js), never direct Firestore writes.
+export const addPlayerMock = impl.addPlayerMock || null;
 
 export { isDevMode };

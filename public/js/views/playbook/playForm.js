@@ -1,4 +1,5 @@
-import { createPlay, getActiveVersion } from '../../data.js';
+import { createPlay, updatePlay, duplicatePlay, setPlayActive, getActiveVersion } from '../../data.js';
+import { createFieldDesigner } from '../fieldDesigner.js';
 import {
   categoriesForSide,
   YARDAGE_DEPTH,
@@ -8,29 +9,33 @@ import {
   SUGGESTED_SLOTS,
 } from '../../constants/football.js';
 
-/**
- * Renders the Add Play form. Editing an existing play (playId/existingPlay
- * passed) pre-fills fields but Milestone 2's first checkpoint only wires
- * up create — full edit-and-save is a fast follow, not blocking this
- * review.
- */
 export async function renderPlayForm(root, team, claims, side, onDone, playId, existingPlay) {
-  const assignments = {}; // slotLabel -> {route, roleClassification, job, why, key}
   let existingAssignments = {};
+  let existingFieldDesign = null;
+  let existingVersionId = existingPlay?.activeVersionId || null;
 
   if (playId && existingPlay?.activeVersionId) {
     const version = await getActiveVersion(claims.teamId, playId, existingPlay.activeVersionId);
     existingAssignments = version?.assignments || {};
-    Object.assign(assignments, existingAssignments);
+    existingFieldDesign = version?.fieldDesign || null;
   }
 
+  let designer = null;
   render();
 
   function render() {
     const categories = categoriesForSide(side);
     root.innerHTML = `
       <button id="back-to-list" class="btn btn-link" style="padding-left:0;">&larr; Back to Playbook</button>
-      <h1 style="font-size:22px;">${playId ? 'Play Details' : 'Add Play'}</h1>
+      <div class="dash-header" style="margin-bottom: var(--space-2);">
+        <h1 style="font-size:22px; margin:0;">${playId ? 'Edit Play' : 'Add Play'}</h1>
+        ${playId ? `
+          <div class="row">
+            <button type="button" id="duplicate-play" class="btn btn-link">Duplicate</button>
+            <button type="button" id="archive-play" class="btn btn-link">${existingPlay.active === false ? 'Restore' : 'Archive'}</button>
+          </div>
+        ` : ''}
+      </div>
 
       <form id="play-form" class="stack">
         <div class="card">
@@ -73,7 +78,7 @@ export async function renderPlayForm(root, team, claims, side, onDone, playId, e
         <div class="card">
           <h2>Diagram (Optional)</h2>
           <input type="file" name="diagramFile" accept="image/*" />
-          <p class="hint" style="margin: 8px 0 0 0;">Upload to Firebase Storage — wired up, but full upload testing needs a live signed-in session (see Milestone 1 status).</p>
+          <p class="hint" style="margin: 8px 0 0 0;">Upload to Firebase Storage — needs a live signed-in session plus a one-time Storage setup step (see Milestone 1 status). If you draw the play below, you may not need an uploaded image at all.</p>
         </div>
 
         <div class="card">
@@ -131,23 +136,24 @@ export async function renderPlayForm(root, team, claims, side, onDone, playId, e
             <span>Overall Intent</span>
             <textarea name="intentDescription" placeholder="What is this play designed to do?">${escapeHtml(existingPlay?.intent?.description)}</textarea>
           </label>
-          <label class="field" style="margin-top: var(--space-2);">
+          <p class="hint" style="margin: var(--space-2) 0 0 0;">Primary/Secondary/Decoy below are set from the Play Designer's route designations once you draw routes — you can also type them manually if you skip the designer.</p>
+          <label class="field" style="margin-top: var(--space-1);">
             <span>Primary Target Slot</span>
-            <input type="text" name="primaryTargetSlot" value="${escapeAttr(existingPlay?.intent?.primaryTargetSlot)}" placeholder="e.g. WR1" />
+            <input type="text" name="primaryTargetSlot" id="primaryTargetSlot" value="${escapeAttr(existingPlay?.intent?.primaryTargetSlot)}" placeholder="e.g. WR1" />
           </label>
           <label class="field" style="margin-top: var(--space-2);">
             <span>Secondary Target Slot</span>
-            <input type="text" name="secondaryTargetSlot" value="${escapeAttr(existingPlay?.intent?.secondaryTargetSlot)}" placeholder="e.g. Center" />
+            <input type="text" name="secondaryTargetSlot" id="secondaryTargetSlot" value="${escapeAttr(existingPlay?.intent?.secondaryTargetSlot)}" placeholder="e.g. Center" />
           </label>
           <label class="field" style="margin-top: var(--space-2);">
             <span>Decoy / Clear-Out Slots (comma-separated)</span>
-            <input type="text" name="decoySlots" value="${escapeAttr((existingPlay?.intent?.decoySlots || []).join(', '))}" placeholder="e.g. WR2, WR4" />
+            <input type="text" name="decoySlots" id="decoySlots" value="${escapeAttr((existingPlay?.intent?.decoySlots || []).join(', '))}" placeholder="e.g. WR2, WR4" />
           </label>
         </div>
 
         <div class="card">
-          <h2>Slot Assignments</h2>
-          <p class="hint" style="margin-bottom:8px;">Each slot answers: WHAT do I do? WHAT is my role? WHY does it matter? What's the KEY coaching point?</p>
+          <h2>Play Designer</h2>
+          <p class="hint" style="margin-bottom:8px;">Add a slot, then drag from its marker to draw a route — or select it and tap a template.</p>
           <div class="row-wrap" id="suggested-slots">
             ${SUGGESTED_SLOTS.map((s) => `<button type="button" class="chip" data-add-slot="${s}">+ ${s}</button>`).join('')}
           </div>
@@ -155,7 +161,12 @@ export async function renderPlayForm(root, team, claims, side, onDone, playId, e
             <input type="text" id="custom-slot-input" placeholder="Custom slot name" style="flex:1;" />
             <button type="button" id="add-custom-slot" class="btn btn-secondary">Add</button>
           </div>
-          <div id="assignment-blocks" style="margin-top: var(--space-2);"></div>
+          <div id="field-designer-mount" style="margin-top: var(--space-2);"></div>
+        </div>
+
+        <div class="card">
+          <h2>Assignments — What / Role / Why / Key</h2>
+          <div id="assignment-blocks"></div>
         </div>
 
         <button type="submit" class="btn btn-primary btn-large">Save Play</button>
@@ -170,6 +181,17 @@ export async function renderPlayForm(root, team, claims, side, onDone, playId, e
       render();
     });
 
+    if (playId) {
+      root.querySelector('#duplicate-play').addEventListener('click', async () => {
+        await duplicatePlay(claims.teamId, playId);
+        onDone();
+      });
+      root.querySelector('#archive-play').addEventListener('click', async () => {
+        await setPlayActive(claims.teamId, playId, existingPlay.active === false);
+        onDone();
+      });
+    }
+
     root.querySelectorAll('.chip[data-field]').forEach((chipEl) => {
       chipEl.addEventListener('click', () => {
         const field = chipEl.dataset.field;
@@ -183,27 +205,52 @@ export async function renderPlayForm(root, team, claims, side, onDone, playId, e
       });
     });
 
+    // --- Field Designer + shared slot list ---
+    designer = createFieldDesigner(root.querySelector('#field-designer-mount'), {
+      initialDesign: existingFieldDesign,
+      onChange: syncIntentFromDesigner,
+    });
+
     root.querySelectorAll('[data-add-slot]').forEach((btn) => {
-      btn.addEventListener('click', () => addAssignmentBlock(btn.dataset.addSlot));
+      btn.addEventListener('click', () => addSlot(btn.dataset.addSlot));
     });
     root.querySelector('#add-custom-slot').addEventListener('click', () => {
       const input = root.querySelector('#custom-slot-input');
       const label = input.value.trim();
       if (label) {
-        addAssignmentBlock(label);
+        addSlot(label);
         input.value = '';
       }
     });
 
-    // Re-add any assignments already present (editing case)
-    Object.keys(existingAssignments).forEach((slot) => addAssignmentBlock(slot, existingAssignments[slot]));
+    // Restore any slots already present (editing case, or a design that
+    // already has positions before assignment blocks exist).
+    const seedSlots = new Set([...Object.keys(existingAssignments), ...Object.keys(existingFieldDesign?.positions || {})]);
+    seedSlots.forEach((slot) => {
+      if (!existingFieldDesign?.positions?.[slot]) designer.addSlot(slot);
+      addAssignmentBlock(slot, existingAssignments[slot] || {});
+    });
 
     root.querySelector('#play-form').addEventListener('submit', handleSubmit);
   }
 
+  function addSlot(label) {
+    designer.addSlot(label);
+    addAssignmentBlock(label);
+  }
+
+  function syncIntentFromDesigner(design) {
+    const primary = Object.entries(design.routes).find(([, r]) => r.designation === 'primary')?.[0];
+    const secondary = Object.entries(design.routes).find(([, r]) => r.designation === 'secondary')?.[0];
+    const decoys = Object.entries(design.routes).filter(([, r]) => r.designation === 'decoy').map(([slot]) => slot);
+    if (primary) root.querySelector('#primaryTargetSlot').value = primary;
+    if (secondary) root.querySelector('#secondaryTargetSlot').value = secondary;
+    if (decoys.length) root.querySelector('#decoySlots').value = decoys.join(', ');
+  }
+
   function addAssignmentBlock(slotLabel, data = {}) {
     const container = root.querySelector('#assignment-blocks');
-    if (container.querySelector(`[data-slot="${cssEscape(slotLabel)}"]`)) return; // no duplicates
+    if (container.querySelector(`[data-slot="${cssEscape(slotLabel)}"]`)) return;
     const block = document.createElement('div');
     block.className = 'card';
     block.dataset.slot = slotLabel;
@@ -239,7 +286,10 @@ export async function renderPlayForm(root, team, claims, side, onDone, playId, e
         </label>
       </div>
     `;
-    block.querySelector('[data-remove-slot]').addEventListener('click', () => block.remove());
+    block.querySelector('[data-remove-slot]').addEventListener('click', () => {
+      block.remove();
+      designer.removeSlot(slotLabel);
+    });
     container.appendChild(block);
   }
 
@@ -256,7 +306,7 @@ export async function renderPlayForm(root, team, claims, side, onDone, playId, e
     try {
       const getChipValue = (field) => {
         const selected = root.querySelector(`.chip[data-field="${field}"].selected`);
-        return selected ? selected.dataset.value === 'true' ? true : selected.dataset.value : null;
+        return selected ? (selected.dataset.value === 'true' ? true : selected.dataset.value) : null;
       };
       const isChipSelected = (field) => !!root.querySelector(`.chip[data-field="${field}"].selected`);
 
@@ -267,7 +317,7 @@ export async function renderPlayForm(root, team, claims, side, onDone, playId, e
         category: formData.get('category'),
         formation: formData.get('formation') || null,
         favorite: formData.get('favorite') === 'on',
-        diagramUrl: null, // real Storage upload wiring is the next increment after this checkpoint
+        diagramUrl: existingPlay?.diagramUrl || null, // real Storage upload wiring is the next increment
         tags: {
           beatsMan: isChipSelected('beatsMan'),
           beatsZone: isChipSelected('beatsZone'),
@@ -279,10 +329,7 @@ export async function renderPlayForm(root, team, claims, side, onDone, playId, e
           safe: isChipSelected('safe'),
           riskLevel: formData.get('riskLevel') || 'medium',
         },
-        supplementalTags: (formData.get('supplementalTags') || '')
-          .split(',')
-          .map((s) => s.trim())
-          .filter(Boolean),
+        supplementalTags: (formData.get('supplementalTags') || '').split(',').map((s) => s.trim()).filter(Boolean),
         intendedYardage: formData.get('intendedYardage') ? Number(formData.get('intendedYardage')) : null,
         intent: {
           description: formData.get('intentDescription') || '',
@@ -309,7 +356,13 @@ export async function renderPlayForm(root, team, claims, side, onDone, playId, e
         };
       });
 
-      await createPlay(claims.teamId, playData, assignmentsOut);
+      const fieldDesign = designer.getDesign();
+
+      if (playId) {
+        await updatePlay(claims.teamId, playId, playData, assignmentsOut, fieldDesign);
+      } else {
+        await createPlay(claims.teamId, playData, assignmentsOut, fieldDesign);
+      }
       onDone();
     } catch (err) {
       errorEl.textContent = err.message || 'Something went wrong saving this play.';

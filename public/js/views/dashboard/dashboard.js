@@ -1,6 +1,5 @@
-import { getTeam, getSeason, getRuleConfig, listActivePlayers, getPlayer } from '../../data.js';
+import { getTeam, getSeason, getRuleConfig, listActivePlayers, getPlayer, isDevMode, addPlayerMock } from '../../data.js';
 import { addPlayer, signOut } from '../../auth.js';
-import { isDevMode } from '../../data.js';
 import { renderPlaybookList } from '../playbook/playbookList.js';
 
 const TABS = [
@@ -143,11 +142,20 @@ function renderAddPlayerForm(panel, onAdded) {
     submitBtn.disabled = true;
     submitBtn.textContent = 'Adding...';
 
-    const { accessCode } = await addPlayer({
-      firstName: formData.get('firstName'),
-      lastInitial: formData.get('lastInitial'),
-      jerseyNumber: formData.get('jerseyNumber') || null,
-    });
+    // Dev preview never calls the real Cloud Function — that would be a
+    // real network call toward the live backend from a mode that must
+    // stay fully sandboxed. See docs/DESIGN-PRINCIPLES.md.
+    const { accessCode } = isDevMode
+      ? await addPlayerMock({
+          firstName: formData.get('firstName'),
+          lastInitial: formData.get('lastInitial'),
+          jerseyNumber: formData.get('jerseyNumber') || null,
+        })
+      : await addPlayer({
+          firstName: formData.get('firstName'),
+          lastInitial: formData.get('lastInitial'),
+          jerseyNumber: formData.get('jerseyNumber') || null,
+        });
 
     const resultEl = panel.querySelector('#new-player-result');
     resultEl.hidden = false;
