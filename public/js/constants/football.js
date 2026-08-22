@@ -57,9 +57,8 @@ export const ROLE_CLASSIFICATIONS = [
   { value: 'other', label: 'Other' },
 ];
 
-// Suggested slot labels for quick-add buttons — NOT an exhaustive or
-// format-locked list. A coach can type any slot label freely; this just
-// speeds up the common case. Deliberately format-agnostic (works the same
-// for 5v5, 6v6, 7v7 — more slots just means more taps to add, not a
-// different data model).
-export const SUGGESTED_SLOTS = ['QB', 'Center', 'WR1', 'WR2', 'WR3', 'WR4'];
+// Suggested slot labels for the Play Designer's "Pick a Player" screen —
+// NOT an exhaustive or format-locked list. A coach can add any slot label
+// freely via "+ Player"; this just speeds up the common case and matches
+// what a coach expects to see first regardless of 5v5/6v6/7v7.
+export const SUGGESTED_SLOTS = ['QB', 'C', 'WR1', 'WR2', 'WR3', 'WR4'];

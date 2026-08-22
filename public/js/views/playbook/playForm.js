@@ -6,7 +6,6 @@ import {
   RISK_LEVELS,
   EFFECTIVENESS_LEVELS,
   ROLE_CLASSIFICATIONS,
-  SUGGESTED_SLOTS,
 } from '../../constants/football.js';
 
 export async function renderPlayForm(root, team, claims, side, onDone, playId, existingPlay) {
@@ -153,15 +152,7 @@ export async function renderPlayForm(root, team, claims, side, onDone, playId, e
 
         <div class="card">
           <h2>Play Designer</h2>
-          <p class="hint" style="margin-bottom:8px;">Add a slot, then drag from its marker to draw a route — or select it and tap a template.</p>
-          <div class="row-wrap" id="suggested-slots">
-            ${SUGGESTED_SLOTS.map((s) => `<button type="button" class="chip" data-add-slot="${s}">+ ${s}</button>`).join('')}
-          </div>
-          <div class="row" style="margin-top: var(--space-2);">
-            <input type="text" id="custom-slot-input" placeholder="Custom slot name" style="flex:1;" />
-            <button type="button" id="add-custom-slot" class="btn btn-secondary">Add</button>
-          </div>
-          <div id="field-designer-mount" style="margin-top: var(--space-2);"></div>
+          <div id="field-designer-mount"></div>
         </div>
 
         <div class="card">
@@ -205,38 +196,32 @@ export async function renderPlayForm(root, team, claims, side, onDone, playId, e
       });
     });
 
-    // --- Field Designer + shared slot list ---
+    // --- Field Designer ---
+    // The Designer now owns adding players itself (guided "Pick a Player"
+    // step) — it just needs to know about slots that already have
+    // Assignment text but no drawn position yet (legacy plays from before
+    // the Designer existed), and to tell us when a slot is added/removed
+    // so the Assignments card below stays in sync.
+    const knownSlots = Object.keys(existingAssignments);
     designer = createFieldDesigner(root.querySelector('#field-designer-mount'), {
       initialDesign: existingFieldDesign,
+      knownSlots,
+      onSlotAdded: (slot) => addAssignmentBlock(slot),
+      onSlotRemoved: (slot) => {
+        const block = root.querySelector(`#assignment-blocks [data-slot="${cssEscape(slot)}"]`);
+        if (block) block.remove();
+      },
       onChange: syncIntentFromDesigner,
     });
 
-    root.querySelectorAll('[data-add-slot]').forEach((btn) => {
-      btn.addEventListener('click', () => addSlot(btn.dataset.addSlot));
-    });
-    root.querySelector('#add-custom-slot').addEventListener('click', () => {
-      const input = root.querySelector('#custom-slot-input');
-      const label = input.value.trim();
-      if (label) {
-        addSlot(label);
-        input.value = '';
-      }
-    });
-
-    // Restore any slots already present (editing case, or a design that
-    // already has positions before assignment blocks exist).
-    const seedSlots = new Set([...Object.keys(existingAssignments), ...Object.keys(existingFieldDesign?.positions || {})]);
-    seedSlots.forEach((slot) => {
-      if (!existingFieldDesign?.positions?.[slot]) designer.addSlot(slot);
+    // Pre-populate Assignment blocks for every slot the Designer already
+    // knows about (both positioned and legacy-unpositioned).
+    new Set([...knownSlots, ...Object.keys(existingFieldDesign?.positions || {})]).forEach((slot) => {
       addAssignmentBlock(slot, existingAssignments[slot] || {});
     });
 
     root.querySelector('#play-form').addEventListener('submit', handleSubmit);
   }
-
-  function addSlot(label) {
-    designer.addSlot(label);
-    addAssignmentBlock(label);
   }
 
   function syncIntentFromDesigner(design) {
