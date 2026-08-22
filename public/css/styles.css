@@ -1,0 +1,218 @@
+/*
+  SidelineX — base styles.
+
+  Design principle (project-wide, not just this file): GLANCEABLE FIRST,
+  DETAILED SECOND. Every screen should be readable at a glance, with large
+  touch targets, strong visual hierarchy, minimal scrolling, and minimal
+  typing. This matters everywhere, not only in the future Game Day Mode —
+  a coach or a middle-schooler on a phone should never have to squint,
+  hunt, or type more than necessary. See docs/DESIGN-PRINCIPLES.md.
+*/
+
+:root {
+  --color-bg: #0f1115;
+  --color-surface: #1a1d24;
+  --color-border: #2c313c;
+  --color-text: #f2f4f8;
+  --color-text-muted: #9aa3b2;
+  --color-primary: #2f7dff;
+  --color-primary-text: #ffffff;
+  --color-secondary: #2c313c;
+  --color-error: #ff5c5c;
+  --color-success: #3ddc84;
+  --radius: 14px;
+  --tap-min: 52px;
+  --space-1: 8px;
+  --space-2: 16px;
+  --space-3: 24px;
+  --space-4: 32px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
+  font-size: 18px;
+  line-height: 1.4;
+  -webkit-tap-highlight-color: transparent;
+}
+
+#app {
+  max-width: 480px;
+  margin: 0 auto;
+  min-height: 100vh;
+  padding: var(--space-3) var(--space-2);
+}
+
+.screen h1 {
+  font-size: 28px;
+  font-weight: 700;
+  margin: 0 0 var(--space-1) 0;
+}
+
+.screen h2 {
+  font-size: 18px;
+  font-weight: 700;
+  margin: 0 0 var(--space-1) 0;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--color-text-muted);
+}
+
+.hint {
+  color: var(--color-text-muted);
+  font-size: 15px;
+  margin: 0 0 var(--space-3) 0;
+}
+
+.entry {
+  padding-top: 20vh;
+  text-align: center;
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.field span {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+
+input, select {
+  font-size: 20px;
+  padding: 14px 16px;
+  border-radius: var(--radius);
+  border: 2px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+  min-height: var(--tap-min);
+}
+
+input:focus, select:focus {
+  outline: none;
+  border-color: var(--color-primary);
+}
+
+.code-input {
+  font-size: 32px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.btn {
+  min-height: var(--tap-min);
+  border-radius: var(--radius);
+  border: none;
+  font-size: 18px;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 0 var(--space-3);
+}
+
+.btn-large {
+  font-size: 20px;
+  min-height: 60px;
+}
+
+.btn-primary {
+  background: var(--color-primary);
+  color: var(--color-primary-text);
+}
+
+.btn-secondary {
+  background: var(--color-secondary);
+  color: var(--color-text);
+  border: 2px solid var(--color-border);
+}
+
+.btn-link {
+  background: transparent;
+  color: var(--color-text-muted);
+  text-decoration: underline;
+  min-height: 44px;
+}
+
+.btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: var(--space-2);
+  margin-bottom: var(--space-2);
+}
+
+.card-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-1);
+}
+
+.dash-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: var(--space-3);
+}
+
+.code-display {
+  font-size: 36px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  color: var(--color-primary);
+  margin: var(--space-1) 0;
+}
+
+.roster-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-size: 18px;
+}
+
+.roster-list li {
+  padding: 10px 0;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.roster-list li:last-child {
+  border-bottom: none;
+}
+
+.roster-grid {
+  gap: var(--space-1);
+}
+
+.error {
+  color: var(--color-error);
+  font-weight: 600;
+  margin-top: var(--space-1);
+}
+
+.success {
+  color: var(--color-success);
+  font-weight: 600;
+  margin-bottom: 0;
+}

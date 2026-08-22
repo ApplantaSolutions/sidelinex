@@ -1,0 +1,41 @@
+// Loads the Firebase SDK from Google's CDN as native ES modules — no npm
+// install, no bundler, no build step for the client app. Keeps the local
+// project footprint to just this repo's own source files.
+//
+// Version pinned deliberately; bump it here (one line) when you want a
+// newer SDK, rather than letting it float.
+const SDK_VERSION = '11.0.2';
+
+const { initializeApp } = await import(
+  `https://www.gstatic.com/firebasejs/${SDK_VERSION}/firebase-app.js`
+);
+const { getAuth, signInWithCustomToken, onAuthStateChanged, signOut } = await import(
+  `https://www.gstatic.com/firebasejs/${SDK_VERSION}/firebase-auth.js`
+);
+const { getFirestore, doc, getDoc, setDoc, collection, query, where, getDocs } = await import(
+  `https://www.gstatic.com/firebasejs/${SDK_VERSION}/firebase-firestore.js`
+);
+const { getFunctions, httpsCallable } = await import(
+  `https://www.gstatic.com/firebasejs/${SDK_VERSION}/firebase-functions.js`
+);
+
+import { firebaseConfig } from './firebase-config.js';
+
+export const app = initializeApp(firebaseConfig);
+export const auth = getAuth(app);
+export const db = getFirestore(app);
+export const functions = getFunctions(app);
+
+export {
+  signInWithCustomToken,
+  onAuthStateChanged,
+  signOut,
+  doc,
+  getDoc,
+  setDoc,
+  collection,
+  query,
+  where,
+  getDocs,
+  httpsCallable,
+};

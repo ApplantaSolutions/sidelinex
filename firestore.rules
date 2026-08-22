@@ -1,0 +1,111 @@
+rules_version = '2';
+
+// SidelineX Firestore Security Rules — Milestone 1
+//
+// Core principle: knowing a teamId alone must never grant access. Every
+// client request must carry a Firebase custom auth token minted by the
+// `login` Cloud Function (functions/index.js), which verifies a Team Code +
+// individual access code server-side before issuing {teamId, role,
+// playerId?} claims. These rules only ever trust request.auth.token — never
+// anything the client sends in a document body.
+//
+// Coach-owned vs player-editable separation (Milestone 1 architecture,
+// not yet built as UI): every player has a public-within-team roster doc
+// (players/{playerId}, coach-writable only) and a separate, empty-for-now
+// profile subdocument (players/{playerId}/profile/self) that the player
+// will eventually be allowed to edit themselves. The permission split is
+// real starting now even though the profile UI doesn't exist yet.
+//
+// Credentials (access-code hashes) live in dedicated collections that no
+// client — coach or player — can ever read. Only the Cloud Function's Admin
+// SDK (which bypasses these rules entirely) touches them. This is
+// deliberate: a hash never needs to be read back, only compared
+// server-side, so no read path is provided at all.
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function tokenTeamId() {
+      return request.auth.token.teamId;
+    }
+
+    function tokenRole() {
+      return request.auth.token.role;
+    }
+
+    function tokenPlayerId() {
+      return request.auth.token.playerId;
+    }
+
+    function isCoach(teamId) {
+      return isSignedIn() && tokenTeamId() == teamId && tokenRole() == 'coach';
+    }
+
+    function isTeamMember(teamId) {
+      return isSignedIn() && tokenTeamId() == teamId &&
+             (tokenRole() == 'coach' || tokenRole() == 'player');
+    }
+
+    function isSelf(teamId, playerId) {
+      return isSignedIn() && tokenTeamId() == teamId &&
+             tokenRole() == 'player' && tokenPlayerId() == playerId;
+    }
+
+    match /teams/{teamId} {
+      // Team name/format/teamCode are readable by any authenticated member
+      // of that team; only the coach can change them.
+      allow read: if isTeamMember(teamId);
+      allow write: if isCoach(teamId);
+
+      match /seasons/{seasonId} {
+        allow read: if isTeamMember(teamId);
+        allow write: if isCoach(teamId);
+      }
+
+      match /ruleConfig/{docId} {
+        // Provisional league drive-rule config (4 downs to midfield, 3 to
+        // score by default). Readable by everyone on the team so Game Day
+        // Mode (later milestone) can always know the active rules;
+        // editable only by the coach.
+        allow read: if isTeamMember(teamId);
+        allow write: if isCoach(teamId);
+      }
+
+      match /players/{playerId} {
+        // Coach-owned football data: roster fields, weekly roles,
+        // evaluations, attendance, stats, assignments, notes — all of it
+        // lives under this document or sibling coach-only collections
+        // added in later milestones. Coach-writable only, ever.
+        allow read: if isTeamMember(teamId);
+        allow write: if isCoach(teamId);
+
+        match /profile/{docId} {
+          // Player-editable fields (avatar, nickname, fun fields, personal
+          // goals). Not built as UI yet — this rule exists now so the
+          // permission boundary is correct from day one. A player may only
+          // ever write their OWN profile document; a coach can still read
+          // (never silently write over) it.
+          allow read: if isTeamMember(teamId);
+          allow write: if isCoach(teamId) || isSelf(teamId, playerId);
+        }
+      }
+
+      // Access-code hashes: no client read or write, ever. Only the Admin
+      // SDK inside Cloud Functions (functions/index.js) touches these,
+      // and Admin SDK calls bypass Firestore rules entirely.
+      match /coachCredentials/{docId} {
+        allow read, write: if false;
+      }
+
+      match /playerCredentials/{playerId} {
+        allow read, write: if false;
+      }
+    }
+
+    // Everything else is denied by default (no matching rule = no access).
+  }
+}

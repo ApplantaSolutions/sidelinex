@@ -1,0 +1,17 @@
+{
+  "name": "sidelinex-functions",
+  "description": "SidelineX Cloud Functions — team/player auth bootstrap and login only in Milestone 1.",
+  "private": true,
+  "engines": {
+    "node": "20"
+  },
+  "main": "index.js",
+  "scripts": {
+    "test": "node --test ./test/"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "firebase-admin": "^12.6.0",
+    "firebase-functions": "^6.1.0"
+  }
+}
