@@ -12,7 +12,7 @@ const { initializeApp } = await import(
 const { getAuth, signInWithCustomToken, onAuthStateChanged, signOut } = await import(
   `https://www.gstatic.com/firebasejs/${SDK_VERSION}/firebase-auth.js`
 );
-const { getFirestore, doc, getDoc, setDoc, collection, query, where, getDocs } = await import(
+const { getFirestore, doc, getDoc, setDoc, collection, query, where, orderBy, getDocs } = await import(
   `https://www.gstatic.com/firebasejs/${SDK_VERSION}/firebase-firestore.js`
 );
 const { getFunctions, httpsCallable } = await import(
@@ -36,6 +36,7 @@ export {
   collection,
   query,
   where,
+  orderBy,
   getDocs,
   httpsCallable,
 };

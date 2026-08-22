@@ -94,6 +94,20 @@ service cloud.firestore {
         }
       }
 
+      match /plays/{playId} {
+        // Plays are not sensitive the way credentials are — any team
+        // member (coach or player) can read the playbook, which is what
+        // Milestone 2's later Player Mode Lite ("My Plays") will build on
+        // top of. Only the coach can create/edit plays.
+        allow read: if isTeamMember(teamId);
+        allow write: if isCoach(teamId);
+
+        match /versions/{versionId} {
+          allow read: if isTeamMember(teamId);
+          allow write: if isCoach(teamId);
+        }
+      }
+
       // Access-code hashes: no client read or write, ever. Only the Admin
       // SDK inside Cloud Functions (functions/index.js) touches these,
       // and Admin SDK calls bypass Firestore rules entirely.

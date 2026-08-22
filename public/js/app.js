@@ -1,11 +1,21 @@
 import { getCurrentClaims } from './auth.js';
+import { isDevMode } from './data.js';
 import { renderCreateTeamView } from './views/setup/createTeam.js';
 import { renderLoginView } from './views/login/login.js';
 import { renderDashboardView } from './views/dashboard/dashboard.js';
 
-const root = document.getElementById('app');
+const appRoot = document.getElementById('app');
 
 async function start() {
+  if (isDevMode) {
+    // Local preview only — see public/js/data.js. Skips real Firebase Auth
+    // entirely and goes straight to the coach dashboard against in-memory
+    // mock data, so the UI can be reviewed while Milestone 1's auth Cloud
+    // Functions are blocked. Never used in production (?dev=1 required).
+    showDashboard({ teamId: 'dev-team-1', role: 'coach' });
+    return;
+  }
+
   const claims = await getCurrentClaims();
   if (claims && claims.teamId && claims.role) {
     showDashboard(claims);
@@ -15,9 +25,10 @@ async function start() {
 }
 
 function showEntry() {
-  root.innerHTML = `
+  appRoot.innerHTML = `
     <section class="screen entry">
-      <h1>SidelineX</h1>
+      <div class="sx-mark" style="margin: 0 auto var(--space-2) auto;">SX</div>
+      <h1>Sideline<span style="color:var(--sx-gold)">X</span></h1>
       <p class="hint">Game-day play command center.</p>
       <div class="stack">
         <button id="go-login" class="btn btn-primary btn-large">Log In</button>
@@ -25,18 +36,18 @@ function showEntry() {
       </div>
     </section>
   `;
-  root.querySelector('#go-login').addEventListener('click', () => {
-    renderLoginView(root, (claims) => showDashboard(claims));
+  appRoot.querySelector('#go-login').addEventListener('click', () => {
+    renderLoginView(appRoot, (claims) => showDashboard(claims));
   });
-  root.querySelector('#go-create').addEventListener('click', () => {
-    renderCreateTeamView(root, ({ teamId, teamCode }) => {
-      showDashboard({ teamId, role: 'coach' });
+  appRoot.querySelector('#go-create').addEventListener('click', () => {
+    renderCreateTeamView(appRoot, () => {
+      showDashboard({ teamId: 'coach', role: 'coach' });
     });
   });
 }
 
 async function showDashboard(claims) {
-  await renderDashboardView(root, claims, () => showEntry());
+  await renderDashboardView(appRoot, claims, () => showEntry());
 }
 
 start();

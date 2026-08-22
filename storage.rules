@@ -1,0 +1,40 @@
+rules_version = '2';
+
+// SidelineX Firebase Storage rules — Milestone 2. Play diagram images only.
+// Same coach-write / team-member-read pattern as Firestore's plays
+// collection. Storage rules can't read custom claims from the client SDK
+// auth object the same way Firestore rules do, but request.auth.token
+// works identically here since both use the same Firebase Auth session.
+
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function tokenTeamId() {
+      return request.auth.token.teamId;
+    }
+
+    function tokenRole() {
+      return request.auth.token.role;
+    }
+
+    function isCoach(teamId) {
+      return isSignedIn() && tokenTeamId() == teamId && tokenRole() == 'coach';
+    }
+
+    function isTeamMember(teamId) {
+      return isSignedIn() && tokenTeamId() == teamId &&
+             (tokenRole() == 'coach' || tokenRole() == 'player');
+    }
+
+    match /teams/{teamId}/plays/{allPaths=**} {
+      allow read: if isTeamMember(teamId);
+      allow write: if isCoach(teamId)
+                   && request.resource.size < 10 * 1024 * 1024
+                   && request.resource.contentType.matches('image/.*');
+    }
+  }
+}

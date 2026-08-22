@@ -1,10 +1,13 @@
-import { getTeam } from '../../models/team.js';
-import { getSeason } from '../../models/season.js';
-import { getRuleConfig } from '../../models/ruleConfig.js';
-import { listActivePlayers } from '../../models/player.js';
-import { getPlayer } from '../../models/player.js';
-import { addPlayer } from '../../auth.js';
-import { signOut } from '../../auth.js';
+import { getTeam, getSeason, getRuleConfig, listActivePlayers, getPlayer } from '../../data.js';
+import { addPlayer, signOut } from '../../auth.js';
+import { isDevMode } from '../../data.js';
+import { renderPlaybookList } from '../playbook/playbookList.js';
+
+const TABS = [
+  { id: 'home', label: 'Home' },
+  { id: 'roster', label: 'Roster' },
+  { id: 'playbook', label: 'Playbook' },
+];
 
 export async function renderDashboardView(root, claims, onSignOut) {
   root.innerHTML = `<section class="screen"><p class="hint">Loading...</p></section>`;
@@ -16,62 +19,94 @@ export async function renderDashboardView(root, claims, onSignOut) {
   }
 
   if (claims.role === 'coach') {
-    return renderCoachDashboard(root, team, claims, onSignOut);
+    return renderCoachShell(root, team, claims, onSignOut);
   }
   return renderPlayerDashboard(root, team, claims, onSignOut);
 }
 
-async function renderCoachDashboard(root, team, claims, onSignOut) {
-  const [season, ruleConfig, players] = await Promise.all([
-    getSeason(claims.teamId, team.activeSeasonId),
-    getRuleConfig(claims.teamId),
-    listActivePlayers(claims.teamId),
-  ]);
-
+async function renderCoachShell(root, team, claims, onSignOut, activeTab = 'home') {
   root.innerHTML = `
+    <header class="app-header">
+      <div class="sx-mark">SX</div>
+      <div class="sx-wordmark">Sideline<span class="x">X</span></div>
+      ${isDevMode ? '<span class="chip" style="margin-left:auto;">DEV PREVIEW</span>' : ''}
+    </header>
     <section class="screen">
-      <header class="dash-header">
+      <div class="dash-header">
         <div>
           <h1>${escapeHtml(team.name)}</h1>
-          <p class="hint">${team.format} · ${escapeHtml(season?.label || '')}</p>
+          <p class="hint" style="margin-bottom:0;">${team.format}</p>
         </div>
         <button id="sign-out" class="btn btn-link">Sign Out</button>
-      </header>
-
-      <div class="card">
-        <h2>Team Code</h2>
-        <p class="code-display">${escapeHtml(team.teamCode)}</p>
-        <p class="hint">Share this with players and assistant coaches so they can log in.</p>
       </div>
-
-      <div class="card">
-        <h2>League Rules (Provisional)</h2>
-        <p>${ruleConfig?.downsToMidfield ?? '?'} downs to midfield, then ${ruleConfig?.downsAfterMidfieldToScore ?? '?'} more to score.</p>
-        ${ruleConfig?.provisional ? '<p class="hint">Default values — update once the official rulebook is uploaded.</p>' : ''}
-      </div>
-
-      <div class="card">
-        <div class="card-header-row">
-          <h2>Roster (${players.length})</h2>
-          <button id="add-player-btn" class="btn btn-primary">+ Add Player</button>
-        </div>
-        <ul class="roster-list" id="roster-list">
-          ${players.map((p) => `<li>#${p.jerseyNumber ?? '--'} ${escapeHtml(p.firstName)} ${escapeHtml(p.lastInitial || '')}</li>`).join('') || '<li class="hint">No players yet.</li>'}
-        </ul>
-      </div>
-
-      <div id="add-player-panel" hidden></div>
+      <nav class="nav-tabs" id="nav-tabs">
+        ${TABS.map((t) => `<button class="nav-tab ${t.id === activeTab ? 'active' : ''}" data-tab="${t.id}">${t.label}</button>`).join('')}
+      </nav>
+      <div id="tab-content"></div>
     </section>
   `;
 
   root.querySelector('#sign-out').addEventListener('click', async () => {
-    await signOut();
+    if (!isDevMode) await signOut();
     onSignOut();
   });
 
+  root.querySelectorAll('.nav-tab').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      renderCoachShell(root, team, claims, onSignOut, btn.dataset.tab);
+    });
+  });
+
+  const tabContent = root.querySelector('#tab-content');
+  if (activeTab === 'home') return renderHomeTab(tabContent, team, claims);
+  if (activeTab === 'roster') return renderRosterTab(tabContent, team, claims);
+  if (activeTab === 'playbook') return renderPlaybookList(tabContent, team, claims);
+}
+
+async function renderHomeTab(root, team, claims) {
+  const [season, ruleConfig] = await Promise.all([
+    getSeason(claims.teamId, team.activeSeasonId),
+    getRuleConfig(claims.teamId),
+  ]);
+
+  root.innerHTML = `
+    <div class="card card-gold">
+      <h2>Team Code</h2>
+      <p class="code-display">${escapeHtml(team.teamCode)}</p>
+      <p class="hint" style="margin-bottom:0;">Share this with players and assistant coaches so they can log in.</p>
+    </div>
+
+    <div class="card">
+      <h2>Season</h2>
+      <p style="margin:0;">${escapeHtml(season?.label || '')}</p>
+    </div>
+
+    <div class="card">
+      <h2>League Rules (Provisional)</h2>
+      <p style="margin:0;">${ruleConfig?.downsToMidfield ?? '?'} downs to midfield, then ${ruleConfig?.downsAfterMidfieldToScore ?? '?'} more to score.</p>
+      ${ruleConfig?.provisional ? '<p class="hint" style="margin:8px 0 0 0;">Default values — update once the official rulebook is uploaded.</p>' : ''}
+    </div>
+  `;
+}
+
+async function renderRosterTab(root, team, claims) {
+  const players = await listActivePlayers(claims.teamId);
+  root.innerHTML = `
+    <div class="card">
+      <div class="card-header-row">
+        <h2>Roster (${players.length})</h2>
+        <button id="add-player-btn" class="btn btn-primary">+ Add Player</button>
+      </div>
+      <ul class="roster-list" id="roster-list">
+        ${players.map((p) => `<li>#${p.jerseyNumber ?? '--'} ${escapeHtml(p.firstName)} ${escapeHtml(p.lastInitial || '')}</li>`).join('') || '<li class="hint">No players yet.</li>'}
+      </ul>
+    </div>
+    <div id="add-player-panel" hidden></div>
+  `;
+
   root.querySelector('#add-player-btn').addEventListener('click', () => {
     renderAddPlayerForm(root.querySelector('#add-player-panel'), async () => {
-      await renderCoachDashboard(root, team, claims, onSignOut);
+      await renderRosterTab(root, team, claims);
     });
   });
 }
@@ -108,7 +143,7 @@ function renderAddPlayerForm(panel, onAdded) {
     submitBtn.disabled = true;
     submitBtn.textContent = 'Adding...';
 
-    const { playerId, accessCode } = await addPlayer({
+    const { accessCode } = await addPlayer({
       firstName: formData.get('firstName'),
       lastInitial: formData.get('lastInitial'),
       jerseyNumber: formData.get('jerseyNumber') || null,
@@ -125,7 +160,7 @@ function renderAddPlayerForm(panel, onAdded) {
     submitBtn.disabled = false;
     submitBtn.textContent = 'Add Player';
     await onAdded();
-    panel.hidden = false; // keep the result visible even after the roster list re-renders above it
+    panel.hidden = false;
     panel.appendChild(resultEl);
   });
 }
@@ -133,16 +168,20 @@ function renderAddPlayerForm(panel, onAdded) {
 async function renderPlayerDashboard(root, team, claims, onSignOut) {
   const player = await getPlayer(claims.teamId, claims.playerId);
   root.innerHTML = `
+    <header class="app-header">
+      <div class="sx-mark">SX</div>
+      <div class="sx-wordmark">Sideline<span class="x">X</span></div>
+    </header>
     <section class="screen">
-      <header class="dash-header">
+      <div class="dash-header">
         <div>
           <h1>${escapeHtml(team.name)}</h1>
-          <p class="hint">Hi, ${escapeHtml(player?.firstName || '')}!</p>
+          <p class="hint" style="margin-bottom:0;">Hi, ${escapeHtml(player?.firstName || '')}!</p>
         </div>
         <button id="sign-out" class="btn btn-link">Sign Out</button>
-      </header>
+      </div>
       <div class="card">
-        <p>You're logged in. My Plays and My Assignments will show up here once the coach builds the playbook.</p>
+        <p style="margin:0;">You're logged in. My Plays and My Assignments will show up here once the coach builds the playbook.</p>
       </div>
     </section>
   `;

@@ -1,26 +1,46 @@
 /*
-  SidelineX — base styles.
+  SidelineX — design tokens and reusable components.
 
-  Design principle (project-wide, not just this file): GLANCEABLE FIRST,
-  DETAILED SECOND. Every screen should be readable at a glance, with large
-  touch targets, strong visual hierarchy, minimal scrolling, and minimal
-  typing. This matters everywhere, not only in the future Game Day Mode —
-  a coach or a middle-schooler on a phone should never have to squint,
-  hunt, or type more than necessary. See docs/DESIGN-PRINCIPLES.md.
+  Brand direction: deep black/charcoal foundation, warm metallic
+  championship gold used RESTRAINED (primary actions, selections, key
+  metrics, emphasis — never as decoration or a flood of color), crisp
+  white/silver typography. Premium sports-performance aesthetic — think
+  elite football operations room, not a kids-sports app.
+
+  Project principle, unchanged and non-negotiable: GLANCEABLE FIRST,
+  DETAILED SECOND. Every token and component below still has to serve
+  readability, large touch targets, high contrast, and minimal typing —
+  the new look is not allowed to cost any of that. See
+  docs/DESIGN-PRINCIPLES.md.
 */
 
 :root {
-  --color-bg: #0f1115;
-  --color-surface: #1a1d24;
-  --color-border: #2c313c;
-  --color-text: #f2f4f8;
-  --color-text-muted: #9aa3b2;
-  --color-primary: #2f7dff;
-  --color-primary-text: #ffffff;
-  --color-secondary: #2c313c;
-  --color-error: #ff5c5c;
-  --color-success: #3ddc84;
+  /* Foundation */
+  --sx-black: #0a0a0b;
+  --sx-charcoal: #17171a;
+  --sx-charcoal-2: #1f1f23;
+  --sx-border: #2c2c31;
+  --sx-border-strong: #3a3a41;
+
+  /* Typography */
+  --sx-white: #f7f7f5;
+  --sx-silver: #a7a7ad;
+  --sx-silver-dim: #6f6f76;
+
+  /* Gold — the ONE accent color. Used only for: primary actions,
+     selected/active states, key metrics (codes, scores), favorites,
+     emphasis. Never a background wash across a whole screen. */
+  --sx-gold: #c9a227;
+  --sx-gold-bright: #e6c34a;
+  --sx-gold-dim: rgba(201, 162, 39, 0.14);
+  --sx-gold-border: rgba(201, 162, 39, 0.4);
+
+  /* Signal colors — kept separate from gold so gold stays meaningful */
+  --sx-error: #e0433f;
+  --sx-error-dim: rgba(224, 67, 63, 0.12);
+
   --radius: 14px;
+  --radius-sm: 10px;
   --tap-min: 52px;
   --space-1: 8px;
   --space-2: 16px;
@@ -35,8 +55,8 @@
 html, body {
   margin: 0;
   padding: 0;
-  background: var(--color-bg);
-  color: var(--color-text);
+  background: var(--sx-black);
+  color: var(--sx-white);
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
   font-size: 18px;
   line-height: 1.4;
@@ -47,40 +67,104 @@ html, body {
   max-width: 480px;
   margin: 0 auto;
   min-height: 100vh;
+}
+
+.screen {
   padding: var(--space-3) var(--space-2);
 }
 
-.screen h1 {
-  font-size: 28px;
-  font-weight: 700;
-  margin: 0 0 var(--space-1) 0;
+/* ---------- Brand header ---------- */
+
+.app-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-2);
+  border-bottom: 1px solid var(--sx-border);
+  position: sticky;
+  top: 0;
+  background: var(--sx-black);
+  z-index: 10;
 }
 
-.screen h2 {
+.sx-mark {
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  background: var(--sx-charcoal-2);
+  border: 1.5px solid var(--sx-gold-border);
+  color: var(--sx-gold);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+  font-size: 16px;
+  letter-spacing: 0.02em;
+  flex-shrink: 0;
+}
+
+.sx-wordmark {
+  font-weight: 800;
   font-size: 18px;
+  letter-spacing: 0.02em;
+  color: var(--sx-white);
+}
+
+.sx-wordmark .x {
+  color: var(--sx-gold);
+}
+
+/* ---------- Typography ---------- */
+
+h1 {
+  font-size: 28px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  margin: 0 0 var(--space-1) 0;
+  color: var(--sx-white);
+}
+
+h2 {
+  font-size: 15px;
   font-weight: 700;
   margin: 0 0 var(--space-1) 0;
   text-transform: uppercase;
-  letter-spacing: 0.03em;
-  color: var(--color-text-muted);
+  letter-spacing: 0.06em;
+  color: var(--sx-silver);
 }
 
 .hint {
-  color: var(--color-text-muted);
+  color: var(--sx-silver);
   font-size: 15px;
   margin: 0 0 var(--space-3) 0;
 }
 
 .entry {
-  padding-top: 20vh;
+  padding-top: 18vh;
   text-align: center;
 }
+
+/* ---------- Layout helpers ---------- */
 
 .stack {
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
 }
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.row-wrap {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+
+/* ---------- Forms ---------- */
 
 .field {
   display: flex;
@@ -89,40 +173,51 @@ html, body {
 }
 
 .field span {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--color-text-muted);
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--sx-silver);
 }
 
-input, select {
+input, select, textarea {
   font-size: 20px;
+  font-family: inherit;
   padding: 14px 16px;
-  border-radius: var(--radius);
-  border: 2px solid var(--color-border);
-  background: var(--color-surface);
-  color: var(--color-text);
+  border-radius: var(--radius-sm);
+  border: 1.5px solid var(--sx-border);
+  background: var(--sx-charcoal-2);
+  color: var(--sx-white);
   min-height: var(--tap-min);
 }
 
-input:focus, select:focus {
+textarea {
+  min-height: 90px;
+  resize: vertical;
+}
+
+input:focus, select:focus, textarea:focus {
   outline: none;
-  border-color: var(--color-primary);
+  border-color: var(--sx-gold);
 }
 
 .code-input {
   font-size: 32px;
-  font-weight: 700;
+  font-weight: 800;
   letter-spacing: 0.1em;
   text-align: center;
   text-transform: uppercase;
 }
 
+/* ---------- Buttons ---------- */
+
 .btn {
   min-height: var(--tap-min);
-  border-radius: var(--radius);
-  border: none;
+  border-radius: var(--radius-sm);
+  border: 1.5px solid transparent;
   font-size: 18px;
   font-weight: 700;
+  font-family: inherit;
   cursor: pointer;
   padding: 0 var(--space-3);
 }
@@ -132,35 +227,69 @@ input:focus, select:focus {
   min-height: 60px;
 }
 
+/* The ONE solid-fill treatment on the page — reserved for the primary
+   action. High contrast (black text on gold), unmistakable, still just
+   one element, not a color flood. */
 .btn-primary {
-  background: var(--color-primary);
-  color: var(--color-primary-text);
+  background: var(--sx-gold);
+  color: var(--sx-black);
+}
+
+.btn-primary:active {
+  background: var(--sx-gold-bright);
 }
 
 .btn-secondary {
-  background: var(--color-secondary);
-  color: var(--color-text);
-  border: 2px solid var(--color-border);
+  background: var(--sx-charcoal-2);
+  color: var(--sx-white);
+  border-color: var(--sx-border-strong);
+}
+
+.btn-secondary.selected {
+  border-color: var(--sx-gold);
+  color: var(--sx-gold);
+  background: var(--sx-gold-dim);
 }
 
 .btn-link {
   background: transparent;
-  color: var(--color-text-muted);
+  color: var(--sx-silver);
   text-decoration: underline;
   min-height: 44px;
+  border: none;
 }
 
 .btn:disabled {
-  opacity: 0.6;
+  opacity: 0.5;
   cursor: default;
 }
 
+.btn-icon-fav {
+  background: transparent;
+  border: none;
+  font-size: 24px;
+  min-height: 44px;
+  min-width: 44px;
+  color: var(--sx-border-strong);
+  cursor: pointer;
+}
+
+.btn-icon-fav.active {
+  color: var(--sx-gold);
+}
+
+/* ---------- Cards ---------- */
+
 .card {
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
+  background: var(--sx-charcoal);
+  border: 1px solid var(--sx-border);
   border-radius: var(--radius);
   padding: var(--space-2);
   margin-bottom: var(--space-2);
+}
+
+.card-gold {
+  border-color: var(--sx-gold-border);
 }
 
 .card-header-row {
@@ -177,13 +306,23 @@ input:focus, select:focus {
   margin-bottom: var(--space-3);
 }
 
+/* Key metrics / codes — the other place gold is used deliberately */
 .code-display {
   font-size: 36px;
   font-weight: 800;
-  letter-spacing: 0.1em;
-  color: var(--color-primary);
+  letter-spacing: 0.08em;
+  color: var(--sx-gold);
   margin: var(--space-1) 0;
+  font-variant-numeric: tabular-nums;
 }
+
+.metric {
+  font-size: 22px;
+  font-weight: 800;
+  color: var(--sx-gold);
+}
+
+/* ---------- Lists ---------- */
 
 .roster-list {
   list-style: none;
@@ -194,7 +333,7 @@ input:focus, select:focus {
 
 .roster-list li {
   padding: 10px 0;
-  border-bottom: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--sx-border);
 }
 
 .roster-list li:last-child {
@@ -205,14 +344,132 @@ input:focus, select:focus {
   gap: var(--space-1);
 }
 
+/* ---------- Tag chips / badges ---------- */
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 700;
+  border: 1.5px solid var(--sx-border-strong);
+  background: var(--sx-charcoal-2);
+  color: var(--sx-silver);
+}
+
+.chip.selected {
+  border-color: var(--sx-gold);
+  color: var(--sx-gold);
+  background: var(--sx-gold-dim);
+}
+
+.badge {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.badge-offense {
+  background: rgba(90, 130, 220, 0.15);
+  color: #7fa3ea;
+}
+
+.badge-defense {
+  background: rgba(200, 90, 90, 0.15);
+  color: #e08585;
+}
+
+/* ---------- Play list cards ---------- */
+
+.play-card {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  background: var(--sx-charcoal);
+  border: 1px solid var(--sx-border);
+  border-radius: var(--radius);
+  margin-bottom: var(--space-1);
+  cursor: pointer;
+}
+
+.play-card-code {
+  font-size: 22px;
+  font-weight: 800;
+  color: var(--sx-gold);
+  min-width: 40px;
+  text-align: center;
+}
+
+.play-card-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.play-card-name {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--sx-white);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.play-card-meta {
+  font-size: 13px;
+  color: var(--sx-silver);
+  margin-top: 2px;
+}
+
+/* ---------- Nav tabs (dashboard sections) ---------- */
+
+.nav-tabs {
+  display: flex;
+  gap: var(--space-1);
+  margin-bottom: var(--space-3);
+  overflow-x: auto;
+}
+
+.nav-tab {
+  padding: 10px 18px;
+  border-radius: 999px;
+  border: 1.5px solid var(--sx-border-strong);
+  background: transparent;
+  color: var(--sx-silver);
+  font-weight: 700;
+  font-size: 15px;
+  white-space: nowrap;
+  cursor: pointer;
+  min-height: 44px;
+}
+
+.nav-tab.active {
+  border-color: var(--sx-gold);
+  color: var(--sx-gold);
+  background: var(--sx-gold-dim);
+}
+
+/* ---------- Misc ---------- */
+
 .error {
-  color: var(--color-error);
+  color: var(--sx-error);
   font-weight: 600;
   margin-top: var(--space-1);
 }
 
 .success {
-  color: var(--color-success);
-  font-weight: 600;
+  color: var(--sx-gold);
+  font-weight: 700;
   margin-bottom: 0;
+}
+
+.divider {
+  border: none;
+  border-top: 1px solid var(--sx-border);
+  margin: var(--space-2) 0;
 }
