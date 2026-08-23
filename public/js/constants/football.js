@@ -59,6 +59,22 @@ export const ROLE_CLASSIFICATIONS = [
 
 // Suggested slot labels for the Play Designer's "Pick a Player" screen —
 // NOT an exhaustive or format-locked list. A coach can add any slot label
-// freely via "+ Player"; this just speeds up the common case and matches
-// what a coach expects to see first regardless of 5v5/6v6/7v7.
-export const SUGGESTED_SLOTS = ['QB', 'C', 'WR1', 'WR2', 'WR3', 'WR4'];
+// freely via "+ Player"; this just speeds up the common case. Sized for
+// this team's actual 5v5 roster: QB + Center + 3 WRs = 5 — there is no
+// "4th" wide receiver slot suggested, since a 5v5 lineup doesn't have one.
+export const SUGGESTED_SLOTS = ['QB', 'C', 'WR1', 'WR2', 'WR3'];
+
+// The Center is an eligible receiver in flag football (unlike tackle
+// football, where the center can never catch a pass) — this label makes
+// that explicit wherever a coach is choosing who to add, so it's obvious
+// C can be given a real route and a real job, not just treated as a
+// snapper. The on-field marker itself still shows the short "C" (it has
+// to fit inside a small circle); this longer label is only for the
+// player-picker button.
+export const SLOT_DISPLAY_LABELS = {
+  C: 'C — Center/WR (eligible receiver)',
+};
+
+export function slotDisplayLabel(slot) {
+  return SLOT_DISPLAY_LABELS[slot] || slot;
+}

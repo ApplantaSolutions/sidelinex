@@ -40,18 +40,54 @@ export function interpolateAlongPath(points, t) {
   return { ...points[points.length - 1] };
 }
 
-// Fixed, simple V1 timing constants — not per-route speed, not
-// user-configurable beyond startDelaySeconds. "Simplest sensible model,"
-// per the roadmap decision, not a real physics/speed simulation.
+// Must match constants/routes.js's own YARDS_PER_NORM_UNIT — the field
+// workspace represents ~40 yards of depth. Kept as a separate local
+// constant (not imported) because routes.js doesn't export it; if that
+// ever changes, pathLengthYards()'s own tests will catch the drift.
+const YARDS_PER_NORM_UNIT = 40;
+
+/** Total distance actually traveled along a route's path, in yards — the
+ * stem plus the break, not just the straight-line start-to-end distance.
+ * Used to make animation speed reflect real depth: a 9-yard slant should
+ * visibly take longer to run than an 8-yard one, not animate at the same
+ * fixed speed regardless of distance. */
+export function pathLengthYards(points) {
+  if (!points || points.length < 2) return 0;
+  let total = 0;
+  for (let i = 0; i < points.length - 1; i++) {
+    total += Math.hypot(points[i + 1].x - points[i].x, points[i + 1].y - points[i].y);
+  }
+  return total * YARDS_PER_NORM_UNIT;
+}
+
+// Fixed, simple V1 timing constants for phases that are inherently
+// synchronized across every player (everyone must be set before the same
+// snap moment, and the snap beat itself is a fixed visual pause) — not
+// distance-proportional, unlike postsnap routes below.
 export const PRESNAP_DURATION_S = 1.5;
 export const SNAP_BEAT_DURATION_S = 0.6;
-export const POSTSNAP_BASE_DURATION_S = 2.0;
+
+// A postsnap route's own duration is proportional to how far it actually
+// runs, clamped to a watchable range — this is what makes an 8-yard vs a
+// 9-yard slant visibly take different time, not just end up in a
+// different spot. "Simplest sensible model" (a flat sprint pace, not a
+// real acceleration curve), per the roadmap decision, deliberately not a
+// physics simulation.
+export const POSTSNAP_YARDS_PER_SECOND = 8;
+export const POSTSNAP_MIN_DURATION_S = 0.5;
+export const POSTSNAP_MAX_DURATION_S = 3.5;
+
+export function postsnapDurationFor(points) {
+  const raw = pathLengthYards(points) / POSTSNAP_YARDS_PER_SECOND;
+  return Math.min(POSTSNAP_MAX_DURATION_S, Math.max(POSTSNAP_MIN_DURATION_S, raw));
+}
 
 /**
  * Builds the full animation schedule for a design: which routes run in
  * which phase, when each starts/ends (in seconds from t=0), and the
  * total sequence duration. Pure function — given the same design, always
- * returns the same schedule.
+ * returns the same schedule. Each postsnap route carries its own
+ * distance-derived duration.
  */
 export function buildPlaySchedule(design) {
   const presnapSlots = [];
@@ -63,7 +99,7 @@ export function buildPlaySchedule(design) {
     if (timing.phase === 'presnap') {
       presnapSlots.push(slot);
     } else {
-      postsnapSlots.push({ slot, delay: timing.startDelaySeconds });
+      postsnapSlots.push({ slot, delay: timing.startDelaySeconds, duration: postsnapDurationFor(route.points) });
     }
   });
 
@@ -74,12 +110,12 @@ export function buildPlaySchedule(design) {
   const snapEnd = snapStart + SNAP_BEAT_DURATION_S;
   const postsnapPhaseStart = snapEnd;
 
-  const maxDelay = postsnapSlots.reduce((m, r) => Math.max(m, r.delay || 0), 0);
-  const totalDuration = postsnapPhaseStart + maxDelay + POSTSNAP_BASE_DURATION_S;
+  const maxFinish = postsnapSlots.reduce((m, r) => Math.max(m, (r.delay || 0) + r.duration), 0);
+  const totalDuration = postsnapPhaseStart + maxFinish;
 
   return {
     presnapSlots,
-    postsnapSlots, // [{slot, delay}]
+    postsnapSlots, // [{slot, delay, duration}]
     hasPresnap,
     presnapStart,
     presnapEnd,
@@ -112,11 +148,11 @@ export function computeFrame(design, schedule, elapsedS) {
     positions[slot] = interpolateAlongPath(route.points, t);
   });
 
-  schedule.postsnapSlots.forEach(({ slot, delay }) => {
+  schedule.postsnapSlots.forEach(({ slot, delay, duration }) => {
     const route = design.routes[slot];
     const routeStart = schedule.postsnapPhaseStart + (delay || 0);
     const local = elapsedS - routeStart;
-    const t = clamp01(local / POSTSNAP_BASE_DURATION_S);
+    const t = clamp01(local / duration);
     positions[slot] = interpolateAlongPath(route.points, t);
   });
 

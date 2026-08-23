@@ -24,7 +24,7 @@ export async function renderPlaybookList(root, team, claims, side = 'offense') {
 
   function renderShell() {
     root.innerHTML = `
-      <div class="row" style="margin-bottom: var(--space-2);">
+      <div class="row" style="margin-bottom: var(--space-2); flex-wrap: wrap;">
         <button class="nav-tab ${side === 'offense' ? 'active' : ''}" data-side="offense">Offense</button>
         <button class="nav-tab ${side === 'defense' ? 'active' : ''}" data-side="defense">Defense</button>
         <button id="add-play-btn" class="btn btn-primary" style="margin-left:auto;">+ Add Play</button>

@@ -22,14 +22,27 @@ export async function renderPlayForm(root, team, claims, side, onDone, playId, e
   let designer = null;
   render();
 
+  // The Designer's Help overlay lives on document.body (so it can cover
+  // the whole screen), not inside `root` — replacing root.innerHTML alone
+  // does NOT remove it. Every path that discards the current designer
+  // (a fresh render(), or leaving this view entirely) must call this
+  // first, or a still-open overlay is orphaned and stuck on screen.
+  function teardownDesigner() {
+    if (designer) {
+      designer.destroy();
+      designer = null;
+    }
+  }
+
   function render() {
+    teardownDesigner();
     const categories = categoriesForSide(side);
     root.innerHTML = `
       <button id="back-to-list" class="btn btn-link" style="padding-left:0;">&larr; Back to Playbook</button>
       <div class="dash-header" style="margin-bottom: var(--space-2);">
         <h1 style="font-size:22px; margin:0;">${playId ? 'Edit Play' : 'Add Play'}</h1>
         ${playId ? `
-          <div class="row">
+          <div class="row" style="flex-wrap:wrap;">
             <button type="button" id="duplicate-play" class="btn btn-link">Duplicate</button>
             <button type="button" id="archive-play" class="btn btn-link">${existingPlay.active === false ? 'Restore' : 'Archive'}</button>
           </div>
@@ -146,7 +159,7 @@ export async function renderPlayForm(root, team, claims, side, onDone, playId, e
           </label>
           <label class="field" style="margin-top: var(--space-2);">
             <span>Decoy / Clear-Out Slots (comma-separated)</span>
-            <input type="text" name="decoySlots" id="decoySlots" value="${escapeAttr((existingPlay?.intent?.decoySlots || []).join(', '))}" placeholder="e.g. WR2, WR4" />
+            <input type="text" name="decoySlots" id="decoySlots" value="${escapeAttr((existingPlay?.intent?.decoySlots || []).join(', '))}" placeholder="e.g. WR2, WR3" />
           </label>
         </div>
 
@@ -165,7 +178,7 @@ export async function renderPlayForm(root, team, claims, side, onDone, playId, e
       </form>
     `;
 
-    root.querySelector('#back-to-list').addEventListener('click', () => onDone());
+    root.querySelector('#back-to-list').addEventListener('click', () => { teardownDesigner(); onDone(); });
 
     root.querySelector('#side-select').addEventListener('change', (e) => {
       side = e.target.value;
@@ -175,10 +188,12 @@ export async function renderPlayForm(root, team, claims, side, onDone, playId, e
     if (playId) {
       root.querySelector('#duplicate-play').addEventListener('click', async () => {
         await duplicatePlay(claims.teamId, playId);
+        teardownDesigner();
         onDone();
       });
       root.querySelector('#archive-play').addEventListener('click', async () => {
         await setPlayActive(claims.teamId, playId, existingPlay.active === false);
+        teardownDesigner();
         onDone();
       });
     }
@@ -347,6 +362,7 @@ export async function renderPlayForm(root, team, claims, side, onDone, playId, e
       } else {
         await createPlay(claims.teamId, playData, assignmentsOut, fieldDesign);
       }
+      teardownDesigner();
       onDone();
     } catch (err) {
       errorEl.textContent = err.message || 'Something went wrong saving this play.';

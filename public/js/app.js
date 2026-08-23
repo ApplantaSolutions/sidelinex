@@ -46,8 +46,8 @@ function showEntry() {
     renderLoginView(appRoot, (claims) => showDashboard(claims));
   });
   appRoot.querySelector('#go-create').addEventListener('click', () => {
-    renderCreateTeamView(appRoot, () => {
-      showDashboard({ teamId: 'coach', role: 'coach' });
+    renderCreateTeamView(appRoot, ({ teamId }) => {
+      showDashboard({ teamId, role: 'coach' });
     });
   });
 }
