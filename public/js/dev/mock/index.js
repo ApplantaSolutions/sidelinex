@@ -39,9 +39,22 @@ const state = {
   ],
   plays: [],
   playVersions: {}, // playId -> { versionId -> versionDoc }
+  games: [],
+  weeklyRoles: {}, // gameId -> { offense: {slot: playerId}, defense: {...} }
+  gamePlans: {}, // gameId -> { entries: [{playId, order, isCore}] }
+  gameDayMeta: {}, // gameId -> { started, startingPossession, startedAt }
+  snaps: {}, // gameId -> [snap, ...]
+  recommendations: {}, // gameId -> [recommendation, ...]
+  scouts: {}, // scoutId -> scout
+  practiceIdeas: [], // [idea, ...]
+  practices: {}, // practiceId -> practice
+  customFocusAreas: [], // [{id, label}, ...]
+  evaluations: {}, // playerId -> [evaluation, ...]
+  checklists: {}, // playerId -> checklist
 };
 
 let nextPlayId = 1;
+let nextGameId = 1;
 
 seedPlay(
   {
@@ -119,6 +132,11 @@ export async function getPlayer(_teamId, playerId) {
   return state.players.find((p) => p.id === playerId) || null;
 }
 
+export async function removePlayer(_teamId, playerId) {
+  const p = state.players.find((x) => x.id === playerId);
+  if (p) p.active = false;
+}
+
 export async function getPlayerProfile() {
   return { displayNickname: null, avatarUrl: null, personalGoals: null };
 }
@@ -189,4 +207,191 @@ export async function setPlayActive(_teamId, playId, active) {
 
 export async function getActiveVersion(_teamId, playId, versionId) {
   return state.playVersions[playId]?.[versionId] || null;
+}
+
+export async function listGames(_teamId) {
+  return [...state.games].sort((a, b) => (a.date < b.date ? 1 : -1));
+}
+
+export async function getGame(_teamId, gameId) {
+  return state.games.find((g) => g.id === gameId) || null;
+}
+
+export async function createGame(_teamId, { name, date, opponent }) {
+  const id = `dev-game-${nextGameId++}`;
+  const now = new Date().toISOString();
+  state.games.push({ id, name: name || 'Untitled Game', date: date || now, opponent: opponent || null, createdAt: now, updatedAt: now });
+  return { id };
+}
+
+export async function updateGame(_teamId, gameId, fields) {
+  const idx = state.games.findIndex((g) => g.id === gameId);
+  if (idx !== -1) state.games[idx] = { ...state.games[idx], ...fields, updatedAt: new Date().toISOString() };
+}
+
+export async function getWeeklyRoles(_teamId, gameId) {
+  return state.weeklyRoles[gameId] ? { ...state.weeklyRoles[gameId] } : { offense: {}, defense: {} };
+}
+
+export async function setWeeklyRoles(_teamId, gameId, { offense, defense }) {
+  state.weeklyRoles[gameId] = { offense: offense || {}, defense: defense || {} };
+}
+
+export async function getGamePlan(_teamId, gameId) {
+  return state.gamePlans[gameId] ? { entries: [...state.gamePlans[gameId].entries] } : { entries: [] };
+}
+
+export async function setGamePlan(_teamId, gameId, entries) {
+  state.gamePlans[gameId] = { entries: entries || [] };
+}
+
+export async function getGameDayMeta(_teamId, gameId) {
+  return state.gameDayMeta[gameId] || null;
+}
+
+export async function startGameDay(_teamId, gameId, { startingPossession }) {
+  state.gameDayMeta[gameId] = { started: true, startingPossession, startedAt: new Date().toISOString() };
+}
+
+export async function listSnaps(_teamId, gameId) {
+  return [...(state.snaps[gameId] || [])].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+}
+
+export async function saveSnap(_teamId, gameId, snapData) {
+  const list = (state.snaps[gameId] ||= []);
+  const idx = list.findIndex((s) => s.id === snapData.id);
+  if (idx !== -1) list[idx] = { ...snapData };
+  else list.push({ ...snapData });
+}
+
+export async function voidSnap(_teamId, gameId, snapId) {
+  const list = state.snaps[gameId] || [];
+  const s = list.find((x) => x.id === snapId);
+  if (s) s.voided = true;
+}
+
+export async function getSnap(_teamId, gameId, snapId) {
+  const list = state.snaps[gameId] || [];
+  return list.find((s) => s.id === snapId) || null;
+}
+
+export async function listRecommendations(_teamId, gameId) {
+  return [...(state.recommendations[gameId] || [])].sort((a, b) => (a.shownAt || '').localeCompare(b.shownAt || ''));
+}
+
+export async function saveRecommendation(_teamId, gameId, rec) {
+  const list = (state.recommendations[gameId] ||= []);
+  const idx = list.findIndex((r) => r.id === rec.id);
+  if (idx !== -1) list[idx] = { ...rec };
+  else list.push({ ...rec });
+}
+
+export async function markRecommendationOutcome(_teamId, gameId, recId, { calledPlayId, calledSnapId }) {
+  const list = state.recommendations[gameId] || [];
+  const r = list.find((x) => x.id === recId);
+  if (r) { r.calledPlayId = calledPlayId; r.calledSnapId = calledSnapId; }
+}
+
+export async function getRecommendation(_teamId, gameId, recId) {
+  const list = state.recommendations[gameId] || [];
+  return list.find((r) => r.id === recId) || null;
+}
+
+let scoutIdCounter = 0;
+
+export async function listScouts(_teamId) {
+  return Object.values(state.scouts).sort((a, b) => (a.opponentName || '').localeCompare(b.opponentName || ''));
+}
+
+export async function getScout(_teamId, scoutId) {
+  return state.scouts[scoutId] || null;
+}
+
+export async function createScout(_teamId, scoutData) {
+  const id = `scout-mock-${++scoutIdCounter}`;
+  const now = new Date().toISOString();
+  state.scouts[id] = { id, ...scoutData, source: scoutData.source || 'coach_manual', createdAt: now, updatedAt: now };
+  return { id };
+}
+
+export async function updateScout(_teamId, scoutId, fields) {
+  const existing = state.scouts[scoutId] || { id: scoutId };
+  state.scouts[scoutId] = { ...existing, ...fields, updatedAt: new Date().toISOString() };
+}
+
+let ideaIdCounter = 0;
+
+export async function listPracticeIdeas(_teamId) {
+  return [...state.practiceIdeas].sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+}
+
+export async function addPracticeIdea(_teamId, idea) {
+  const id = `idea-mock-${++ideaIdCounter}`;
+  state.practiceIdeas.push({ id, text: idea.text, sourceGameId: idea.sourceGameId || null, category: idea.category || null, done: false, createdAt: new Date().toISOString() });
+  return { id };
+}
+
+export async function removePracticeIdea(_teamId, ideaId) {
+  state.practiceIdeas = state.practiceIdeas.filter((i) => i.id !== ideaId);
+}
+
+export async function markPracticeIdeaScheduled(_teamId, ideaId, practiceId) {
+  const idea = state.practiceIdeas.find((i) => i.id === ideaId);
+  if (idea) idea.scheduledInPracticeId = practiceId;
+}
+
+let practiceIdCounter = 0;
+
+export async function listPractices(_teamId) {
+  return Object.values(state.practices).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+}
+
+export async function getPractice(_teamId, practiceId) {
+  return state.practices[practiceId] || null;
+}
+
+export async function createPractice(_teamId, data) {
+  const id = `practice-mock-${++practiceIdCounter}`;
+  const now = new Date().toISOString();
+  state.practices[id] = { id, blocks: [], attendance: {}, ...data, createdAt: now, updatedAt: now };
+  return { id };
+}
+
+export async function updatePractice(_teamId, practiceId, fields) {
+  const existing = state.practices[practiceId] || { id: practiceId };
+  state.practices[practiceId] = { ...existing, ...fields, updatedAt: new Date().toISOString() };
+}
+
+let focusAreaIdCounter = 0;
+
+export async function listCustomFocusAreas(_teamId) {
+  return [...state.customFocusAreas].sort((a, b) => (a.label || '').localeCompare(b.label || ''));
+}
+
+export async function addCustomFocusArea(_teamId, label) {
+  const id = `focus-mock-${++focusAreaIdCounter}`;
+  state.customFocusAreas.push({ id, label, createdAt: new Date().toISOString() });
+  return { id };
+}
+
+let evalIdCounter = 0;
+
+export async function listEvaluations(_teamId, playerId) {
+  return [...(state.evaluations[playerId] || [])].sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+}
+
+export async function addEvaluation(_teamId, playerId, data) {
+  const id = `eval-mock-${++evalIdCounter}`;
+  const list = (state.evaluations[playerId] ||= []);
+  list.push({ id, ...data, createdAt: new Date().toISOString() });
+  return { id };
+}
+
+export async function getChecklist(_teamId, playerId) {
+  return state.checklists[playerId] || {};
+}
+
+export async function setChecklistItem(_teamId, playerId, itemKey, done, source = 'player_marked') {
+  const existing = (state.checklists[playerId] ||= {});
+  existing[itemKey] = { done, source, completedAt: done ? new Date().toISOString() : null };
 }

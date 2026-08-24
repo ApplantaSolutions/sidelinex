@@ -1,5 +1,6 @@
 import { listPlays } from '../../data.js';
 import { renderPlayForm } from './playForm.js';
+import { helpButtonHtml, wireCoachHelpButtons } from '../../ui/coachHelp.js';
 
 const QUICK_FILTERS = [
   { key: 'favorite', label: '&#9733; Favorites', test: (p) => !!p.favorite },
@@ -27,6 +28,7 @@ export async function renderPlaybookList(root, team, claims, side = 'offense') {
       <div class="row" style="margin-bottom: var(--space-2); flex-wrap: wrap;">
         <button class="nav-tab ${side === 'offense' ? 'active' : ''}" data-side="offense">Offense</button>
         <button class="nav-tab ${side === 'defense' ? 'active' : ''}" data-side="defense">Defense</button>
+        ${helpButtonHtml('playbook')}
         <button id="add-play-btn" class="btn btn-primary" style="margin-left:auto;">+ Add Play</button>
       </div>
 
@@ -46,6 +48,8 @@ export async function renderPlaybookList(root, team, claims, side = 'offense') {
 
       <div id="play-list"></div>
     `;
+
+    wireCoachHelpButtons(root);
 
     root.querySelectorAll('[data-side]').forEach((btn) => {
       btn.addEventListener('click', async () => {

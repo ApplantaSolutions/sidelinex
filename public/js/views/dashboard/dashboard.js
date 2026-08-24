@@ -1,11 +1,27 @@
-import { getTeam, getSeason, getRuleConfig, listActivePlayers, getPlayer, isDevMode, addPlayerMock } from '../../data.js';
+import { getTeam, getSeason, getRuleConfig, listActivePlayers, getPlayer, removePlayer, isDevMode, addPlayerMock } from '../../data.js';
 import { addPlayer, signOut } from '../../auth.js';
 import { renderPlaybookList } from '../playbook/playbookList.js';
+import { renderPlaybookPlayerView } from '../playbook/playbookPlayerView.js';
+import { renderGamesList } from '../games/gamesList.js';
+import { renderMyPlaysView } from '../games/myPlaysView.js';
+import { renderPracticeListView } from '../practice/practiceListView.js';
+import { renderPlayerDevelopmentView } from '../practice/playerDevelopmentView.js';
+import { renderMyPracticeView } from '../practice/myPracticeView.js';
+import { helpButtonHtml, wireCoachHelpButtons } from '../../ui/coachHelp.js';
+
+const PLAYER_TABS = [
+  { id: 'home', label: 'Home' },
+  { id: 'playbook', label: 'Playbook' },
+  { id: 'myplays', label: 'My Plays' },
+  { id: 'mypractice', label: 'My Practice' },
+];
 
 const TABS = [
   { id: 'home', label: 'Home' },
   { id: 'roster', label: 'Roster' },
   { id: 'playbook', label: 'Playbook' },
+  { id: 'games', label: 'Games' },
+  { id: 'practice', label: 'Practice' },
 ];
 
 export async function renderDashboardView(root, claims, onSignOut) {
@@ -60,6 +76,8 @@ async function renderCoachShell(root, team, claims, onSignOut, activeTab = 'home
   if (activeTab === 'home') return renderHomeTab(tabContent, team, claims);
   if (activeTab === 'roster') return renderRosterTab(tabContent, team, claims);
   if (activeTab === 'playbook') return renderPlaybookList(tabContent, team, claims);
+  if (activeTab === 'games') return renderGamesList(tabContent, team, claims);
+  if (activeTab === 'practice') return renderPracticeListView(tabContent, team, claims);
 }
 
 async function renderHomeTab(root, team, claims) {
@@ -70,7 +88,10 @@ async function renderHomeTab(root, team, claims) {
 
   root.innerHTML = `
     <div class="card card-gold">
-      <h2>Team Code</h2>
+      <div class="card-header-row">
+        <h2>Team Code</h2>
+        ${helpButtonHtml('home')}
+      </div>
       <p class="code-display">${escapeHtml(team.teamCode)}</p>
       <p class="hint" style="margin-bottom:0;">Share this with players and assistant coaches so they can log in.</p>
     </div>
@@ -86,6 +107,7 @@ async function renderHomeTab(root, team, claims) {
       ${ruleConfig?.provisional ? '<p class="hint" style="margin:8px 0 0 0;">Default values — update once the official rulebook is uploaded.</p>' : ''}
     </div>
   `;
+  wireCoachHelpButtons(root);
 }
 
 async function renderRosterTab(root, team, claims) {
@@ -94,14 +116,41 @@ async function renderRosterTab(root, team, claims) {
     <div class="card">
       <div class="card-header-row">
         <h2>Roster (${players.length})</h2>
-        <button id="add-player-btn" class="btn btn-primary">+ Add Player</button>
+        <div class="row" style="gap:8px;">
+          ${helpButtonHtml('roster')}
+          <button id="add-player-btn" class="btn btn-primary">+ Add Player</button>
+        </div>
       </div>
       <ul class="roster-list" id="roster-list">
-        ${players.map((p) => `<li>#${p.jerseyNumber ?? '--'} ${escapeHtml(p.firstName)} ${escapeHtml(p.lastInitial || '')}</li>`).join('') || '<li class="hint">No players yet.</li>'}
+        ${players.map((p) => `
+          <li class="row" style="justify-content:space-between;">
+            <span>#${p.jerseyNumber ?? '--'} ${escapeHtml(p.firstName)} ${escapeHtml(p.lastInitial || '')}</span>
+            <span class="row" style="gap:8px;">
+              <button type="button" class="btn btn-link" data-view-development="${p.id}">Development</button>
+              <button type="button" class="btn btn-link" data-remove-player="${p.id}">Remove</button>
+            </span>
+          </li>
+        `).join('') || '<li class="hint">No players yet.</li>'}
       </ul>
     </div>
     <div id="add-player-panel" hidden></div>
   `;
+  wireCoachHelpButtons(root);
+
+  root.querySelectorAll('[data-remove-player]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      if (!confirm('Remove this player from the roster? Their access code stops working immediately — you can add them again fresh with a new code.')) return;
+      await removePlayer(claims.teamId, btn.dataset.removePlayer);
+      await renderRosterTab(root, team, claims);
+    });
+  });
+
+  root.querySelectorAll('[data-view-development]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const player = players.find((p) => p.id === btn.dataset.viewDevelopment);
+      if (player) renderPlayerDevelopmentView(root, team, claims, player, () => renderRosterTab(root, team, claims));
+    });
+  });
 
   root.querySelector('#add-player-btn').addEventListener('click', () => {
     renderAddPlayerForm(root.querySelector('#add-player-panel'), async () => {
@@ -157,23 +206,31 @@ function renderAddPlayerForm(panel, onAdded) {
           jerseyNumber: formData.get('jerseyNumber') || null,
         });
 
+    // Deliberately does NOT refresh the roster list yet (which would
+    // require re-rendering this whole tab and would destroy this very
+    // panel out from under the code we're about to show — that was the
+    // bug: the access code was set here, then wiped a moment later by an
+    // immediate roster refresh, before the coach could ever read it). The
+    // roster list refreshes only once the coach explicitly dismisses this
+    // screen below, by which point they've had the code on screen as long
+    // as they need.
+    form.hidden = true;
     const resultEl = panel.querySelector('#new-player-result');
     resultEl.hidden = false;
     resultEl.innerHTML = `
       <p class="success">Player added. Their access code is:</p>
       <p class="code-display">${escapeHtml(accessCode)}</p>
       <p class="hint">Write this down now — it cannot be shown again.</p>
+      <button type="button" id="add-player-done" class="btn btn-primary btn-large" style="margin-top:var(--space-2);">Done</button>
     `;
     form.reset();
     submitBtn.disabled = false;
     submitBtn.textContent = 'Add Player';
-    await onAdded();
-    panel.hidden = false;
-    panel.appendChild(resultEl);
+    resultEl.querySelector('#add-player-done').addEventListener('click', onAdded);
   });
 }
 
-async function renderPlayerDashboard(root, team, claims, onSignOut) {
+async function renderPlayerDashboard(root, team, claims, onSignOut, activeTab = 'home') {
   const player = await getPlayer(claims.teamId, claims.playerId);
   root.innerHTML = `
     <header class="app-header">
@@ -188,15 +245,34 @@ async function renderPlayerDashboard(root, team, claims, onSignOut) {
         </div>
         <button id="sign-out" class="btn btn-link">Sign Out</button>
       </div>
-      <div class="card">
-        <p style="margin:0;">You're logged in. My Plays and My Assignments will show up here once the coach builds the playbook.</p>
-      </div>
+      <nav class="nav-tabs" id="nav-tabs">
+        ${PLAYER_TABS.map((t) => `<button class="nav-tab ${t.id === activeTab ? 'active' : ''}" data-tab="${t.id}">${t.label}</button>`).join('')}
+      </nav>
+      <div id="tab-content"></div>
     </section>
   `;
+
   root.querySelector('#sign-out').addEventListener('click', async () => {
     await signOut();
     onSignOut();
   });
+
+  root.querySelectorAll('.nav-tab').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      renderPlayerDashboard(root, team, claims, onSignOut, btn.dataset.tab);
+    });
+  });
+
+  const tabContent = root.querySelector('#tab-content');
+  if (activeTab === 'playbook') return renderPlaybookPlayerView(tabContent, team, claims);
+  if (activeTab === 'myplays') return renderMyPlaysView(tabContent, team, claims);
+  if (activeTab === 'mypractice') return renderMyPracticeView(tabContent, team, claims);
+  tabContent.innerHTML = `
+    <div class="card card-gold">
+      <h2>Your Plays</h2>
+      <p style="margin:0;">Tap "My Plays" above to see your assignment for every play in this week's Game Plan.</p>
+    </div>
+  `;
 }
 
 function escapeHtml(str) {

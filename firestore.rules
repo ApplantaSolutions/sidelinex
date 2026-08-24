@@ -92,6 +92,27 @@ service cloud.firestore {
           allow read: if isTeamMember(teamId);
           allow write: if isCoach(teamId) || isSelf(teamId, playerId);
         }
+
+        match /evaluations/{evalId} {
+          // Practice Planner + Player Development V1: private coach
+          // development observations. Explicitly NOT exposed to Player
+          // Mode in this stage (product requirement) — coach-only for
+          // both read and write, same as scouts/practiceIdeas/postgame
+          // analytics. A player can never read even their OWN evaluation
+          // here; that is a deliberate, not-yet-built future decision.
+          allow read: if isCoach(teamId);
+          allow write: if isCoach(teamId);
+        }
+
+        match /checklist/{docId} {
+          // Game Ready Checklist: the ONE piece of this player's own data
+          // they're allowed to read AND write themselves — it's their own
+          // self-reported/auto-verified preparation status, not a coach
+          // judgment about them. Coach can read (to see who's prepared)
+          // but never needs to write another player's checklist.
+          allow read: if isCoach(teamId) || isSelf(teamId, playerId);
+          allow write: if isCoach(teamId) || isSelf(teamId, playerId);
+        }
       }
 
       match /plays/{playId} {
@@ -103,6 +124,99 @@ service cloud.firestore {
         allow write: if isCoach(teamId);
 
         match /versions/{versionId} {
+          allow read: if isTeamMember(teamId);
+          allow write: if isCoach(teamId);
+        }
+      }
+
+      match /scouts/{scoutId} {
+        // Opponent Scouting V1. Deliberately DIFFERENT trust level than
+        // every other collection above — this is coach-only football
+        // intelligence (defensive tendencies, playmaker observations) and
+        // is explicitly NOT auto-exposed to Player Mode, per product
+        // requirement. Every other collection in this file uses
+        // isTeamMember() for read; this one uses isCoach() for BOTH read
+        // and write. A player token can neither read nor write a scout
+        // document, full stop.
+        allow read: if isCoach(teamId);
+        allow write: if isCoach(teamId);
+      }
+
+      match /practices/{practiceId} {
+        // Practice Planner V1: a practice's agenda/attendance/assignments
+        // are team information (same trust level as Games) — any team
+        // member can read it, only the coach can create or edit one.
+        // Private per-player coach evaluations live in the SEPARATE,
+        // coach-only players/{playerId}/evaluations subcollection above —
+        // never mixed into this document.
+        allow read: if isTeamMember(teamId);
+        allow write: if isCoach(teamId);
+      }
+
+      match /customFocusAreas/{focusAreaId} {
+        // The extensibility half of the Drill/Focus library — team
+        // information, same trust level as Plays.
+        allow read: if isTeamMember(teamId);
+        allow write: if isCoach(teamId);
+      }
+
+      match /practiceIdeas/{ideaId} {
+        // Postgame Analytics V1's bridge to a future Practice module —
+        // coach-owned analytics-derived notes, same trust level as
+        // scouts: coach-only for both read and write, per the explicit
+        // "coach analytics remain coach-owned" requirement.
+        allow read: if isCoach(teamId);
+        allow write: if isCoach(teamId);
+      }
+
+      match /games/{gameId} {
+        // Weekly Roles / Game Plan stage: a Game is coach-owned football
+        // planning data (same trust level as Plays) — any team member can
+        // read it (players need it for My Plays / My Assignments), only
+        // the coach can create or edit it. A player must never be able to
+        // reassign Weekly Roles, add/remove plays from the Game Plan, or
+        // touch another player's assignment — this rule is the entire
+        // enforcement boundary for that (there is no client-side check
+        // anywhere that substitutes for it).
+        allow read: if isTeamMember(teamId);
+        allow write: if isCoach(teamId);
+
+        match /weeklyRoles/{docId} {
+          allow read: if isTeamMember(teamId);
+          allow write: if isCoach(teamId);
+        }
+
+        match /gamePlan/{docId} {
+          allow read: if isTeamMember(teamId);
+          allow write: if isCoach(teamId);
+        }
+
+        match /gameDayMeta/{docId} {
+          allow read: if isTeamMember(teamId);
+          allow write: if isCoach(teamId);
+        }
+
+        // Game Day (Play Intelligence's live-stats stage): every logged
+        // Snap is coach-entered live-game data, same trust level as
+        // everything else under a Game — only the coach can write (log,
+        // correct, or void a snap), any team member can read (players see
+        // their own live stats). Client-generated snap IDs plus setDoc
+        // (never addDoc) make the coach's own retry-on-reconnect logic
+        // safe from duplicates entirely client-side, but that safety
+        // property has nothing to do with these rules — this is purely
+        // the access boundary.
+        match /snaps/{snapId} {
+          allow read: if isTeamMember(teamId);
+          allow write: if isCoach(teamId);
+        }
+
+        // Sideline Advisor V1 self-scouting log: what the deterministic
+        // engine recommended, what the coach actually called, and the
+        // real situation/reasons behind it. Same trust level as snaps —
+        // coach-only write, any team member can read. This is explicitly
+        // NOT used to judge the coach; it's just data, same access rule
+        // as everything else logged live during a game.
+        match /recommendations/{recId} {
           allow read: if isTeamMember(teamId);
           allow write: if isCoach(teamId);
         }

@@ -1,0 +1,13 @@
+{
+  "name": "sidelinex-netlify-functions",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Netlify Functions replacement for SidelineX's 4 auth-critical Firebase Cloud Functions (createTeam, login, addPlayer, getRosterPicker), used while the Firebase Blaze billing account is blocked.",
+  "scripts": {
+    "test": "node --test test/helpers.test.js test/http.test.js test/analyzePlay.test.js test/sidelineAdvisorExplain.test.js test/postgameSummary.test.js"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "firebase-admin": "^12.1.0"
+  }
+}

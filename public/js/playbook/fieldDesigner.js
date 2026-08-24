@@ -15,6 +15,7 @@ import {
 import { SUGGESTED_SLOTS, slotDisplayLabel } from '../constants/football.js';
 import { FORMATIONS } from '../constants/formations.js';
 import { interpolateAlongPath, buildPlaySchedule, computeFrame, postsnapDurationFor } from './animation.js';
+import { computeDefensePositions, MAN_REACTION_LAG_S } from './defenseAnimation.js';
 
 // SVG football-field workspace. Core rule, unchanged since the interaction
 // rebuild and extended (not weakened) to cover animation: during any
@@ -52,15 +53,47 @@ const JOBS = [
   { value: '', label: 'OTHER', desc: 'No special job — blocking or a different role.' },
 ];
 
-export function createFieldDesigner(container, { initialDesign, knownSlots = [], onSlotAdded, onSlotRemoved, onChange } = {}) {
+// Defensive visualization (Play Intelligence V1) — teaching tool, not a
+// simulation. See defenseAnimation.js for how each mode actually moves
+// during Watch Play; this is just the placement-time vocabulary.
+const DEFENSE_MODES = [
+  { value: 'man', label: 'MAN', desc: 'A defender is matched to a specific offensive player and tracks them.' },
+  { value: 'zone', label: 'ZONE', desc: 'Defenders protect an area and react to routes that enter it.' },
+  { value: 'pressure', label: 'PRESSURE', desc: 'Shows a rusher closing on the QB after the snap.' },
+  { value: 'custom', label: 'CUSTOM', desc: 'You place defenders yourself for one specific teaching look — they stay still.' },
+];
+const DEFENSE_MODE_LABELS = Object.fromEntries(DEFENSE_MODES.map((m) => [m.value, m.label]));
+const DEFENDER_R = 20;
+
+const ZONE_LABELS = ['Flat Left', 'Flat Right', 'Hook', 'Deep Left', 'Deep Middle', 'Deep Right', 'Underneath'];
+const PRESSURE_ROLES = ['Rusher', 'Contain', 'Spy'];
+
+export function createFieldDesigner(container, { initialDesign, knownSlots = [], onSlotAdded, onSlotRemoved, onChange, onFormationApplied } = {}) {
   const design = initialDesign
     ? structuredClone(initialDesign)
     : { positions: {}, routes: {} };
+  // Defensive visualization (Play Intelligence V1) — a sibling of
+  // positions/routes within the SAME design object, not a separate saved
+  // field, so it travels with fieldDesign automatically and old plays
+  // (design.defense === undefined) are simply "no defense set" with zero
+  // migration needed. Teaching tool, not a simulation — see
+  // defenseAnimation.js for the reaction model and its own honesty notes.
+  // .looks holds every defensive look the coach has ever configured for
+  // this play, keyed by mode — switching the active mode (.mode) no
+  // longer discards the others, so a coach can build BOTH a Man look and
+  // a Zone look for the same play and swap between them (design time via
+  // Change Look, watch time via the mode chips in Watch Play controls)
+  // without redoing work. .mode/.defenders always describe whichever
+  // look is currently ACTIVE — every existing reader (playViewer.js,
+  // staticFieldSvg.js, wristbandBuilderView.js, defenseAnimation.js)
+  // keeps working unchanged, since that pair's meaning hasn't changed.
+  if (!design.defense) design.defense = { mode: null, defenders: {}, looks: {} };
+  if (!design.defense.looks) design.defense.looks = {};
 
   const unplacedKnownSlots = knownSlots.filter((s) => !design.positions[s]);
 
-  const nav = { screen: 'overview', activeSlot: null, mode: null, previewRoute: null };
-  const elRefs = { markers: new Map(), routes: new Map(), handle: null, svg: null };
+  const nav = { screen: 'overview', activeSlot: null, mode: null, previewRoute: null, defenderDraft: null };
+  const elRefs = { markers: new Map(), routes: new Map(), handle: null, svg: null, defenderMarkers: new Map() };
   const undoStack = [];
   const anim = { previewRafId: null, watchPlay: null };
   let helpOverlay = null;
@@ -82,6 +115,7 @@ export function createFieldDesigner(container, { initialDesign, knownSlots = [],
     elRefs.markers.clear();
     elRefs.routes.clear();
     elRefs.handle = null;
+    elRefs.defenderMarkers.clear();
 
     container.innerHTML = `
       <div id="fd-banner" class="card card-gold" style="margin-bottom:var(--space-2); padding:14px 16px;"></div>
@@ -96,6 +130,7 @@ export function createFieldDesigner(container, { initialDesign, knownSlots = [],
     drawFieldBackground(svg);
     Object.keys(design.positions).forEach((slot) => drawRoute(svg, slot));
     Object.keys(design.positions).forEach((slot) => drawMarker(svg, slot));
+    Object.entries(design.defense.defenders).forEach(([id, d]) => drawDefenderMarker(svg, id, d));
     if (nav.screen === 'adjust_route' && nav.activeSlot) drawHandle(svg, nav.activeSlot);
     attachFieldTapHandler(svg);
 
@@ -134,6 +169,14 @@ export function createFieldDesigner(container, { initialDesign, knownSlots = [],
         return `<span style="color:var(--sx-gold)">YOU'RE EDITING: ${escapeHtml(nav.activeSlot)}</span><br>What is this player's job?`;
       case 'done_slot':
         return `Nice! <span style="color:var(--sx-gold)">${escapeHtml(nav.activeSlot)}</span> is all set.`;
+      case 'defense_mode':
+        return 'Pick a defensive look to help players see how this play works against it.';
+      case 'defense_manage':
+        return `<span style="color:var(--sx-gold)">${DEFENSE_MODE_LABELS[design.defense.mode] || ''}</span> &mdash; add defenders, or watch the play to see them react.`;
+      case 'defense_configure':
+        return 'Set up this defender, then tap the field to place them.';
+      case 'defense_place':
+        return 'Tap the field to place this defender.';
       default: // overview
         if (anim.watchPlay) return 'id="fd-watch-banner-placeholder"'; // replaced by watch banner below
         if (Object.keys(design.positions).length === 0) return "Tap '+ Add Player' to start building this play.";
@@ -155,6 +198,10 @@ export function createFieldDesigner(container, { initialDesign, knownSlots = [],
     if (nav.screen === 'pick_job') return renderPickJobControls(el);
     if (nav.screen === 'done_slot') return renderDoneSlotControls(el);
     if (nav.screen === 'draw_custom') return renderDrawCustomControls(el);
+    if (nav.screen === 'defense_mode') return renderDefenseModeControls(el);
+    if (nav.screen === 'defense_manage') return renderDefenseManageControls(el);
+    if (nav.screen === 'defense_configure') return renderDefenseConfigureControls(el);
+    if (nav.screen === 'defense_place') return renderDefensePlaceControls(el);
     el.innerHTML = '';
   }
 
@@ -180,6 +227,9 @@ export function createFieldDesigner(container, { initialDesign, knownSlots = [],
         <button type="button" class="btn btn-primary" id="fd-add-player">+ Add Player</button>
         <button type="button" class="btn btn-secondary" id="fd-formations">&#128209; Use a Formation</button>
       </div>
+      <button type="button" class="btn btn-secondary" id="fd-defense" style="width:100%; margin-bottom:var(--space-2);">
+        &#128737; Defense${design.defense.mode ? ` &mdash; ${DEFENSE_MODE_LABELS[design.defense.mode]} (${Object.keys(design.defense.defenders).length})` : ''}
+      </button>
       <div class="row-wrap">
         <button type="button" class="btn btn-secondary" id="fd-undo">Undo</button>
         <button type="button" class="btn btn-link" id="fd-clear">Clear Design</button>
@@ -189,6 +239,7 @@ export function createFieldDesigner(container, { initialDesign, knownSlots = [],
 
     el.querySelector('#fd-add-player').addEventListener('click', () => goTo('pick_player'));
     el.querySelector('#fd-formations').addEventListener('click', () => goTo('formations'));
+    el.querySelector('#fd-defense').addEventListener('click', () => goTo(design.defense.mode ? 'defense_manage' : 'defense_mode'));
     el.querySelector('#fd-undo').addEventListener('click', undo);
     el.querySelector('#fd-clear').addEventListener('click', clearDesign);
     el.querySelector('#fd-help').addEventListener('click', showHelp);
@@ -316,6 +367,7 @@ export function createFieldDesigner(container, { initialDesign, knownSlots = [],
     });
 
     undoStack.length = 0; // a bulk reposition isn't a single-route action Undo's model can represent
+    if (onFormationApplied) onFormationApplied(formation.label);
     emitChange();
     goTo('overview');
   }
@@ -708,6 +760,185 @@ export function createFieldDesigner(container, { initialDesign, knownSlots = [],
     el.querySelector('#fd-done').addEventListener('click', () => goTo('overview'));
   }
 
+  // ---------- DEFENSE (Play Intelligence V1 — teaching visualization, not a simulation) ----------
+
+  function renderDefenseModeControls(el) {
+    el.innerHTML = `
+      <p class="hint" style="margin-bottom:var(--space-2);">Switching looks never loses your work — build Man AND Zone for the same play and swap between them any time, including while watching.</p>
+      <div class="stack">
+        ${DEFENSE_MODES.map((m) => {
+          const hasLook = (m.value === design.defense.mode ? Object.keys(design.defense.defenders).length > 0 : !!design.defense.looks[m.value]?.defenders && Object.keys(design.defense.looks[m.value].defenders).length > 0);
+          return `
+          <button type="button" class="btn ${m.value === design.defense.mode ? 'btn-primary' : 'btn-secondary'} btn-large" data-defense-mode="${m.value}" style="text-align:left; height:auto; padding:14px 18px;">
+            <div style="font-weight:800;">${m.label}${hasLook ? ' &#10003; already built' : ''}</div>
+            <div style="font-weight:400; font-size:14px; opacity:0.85;">${m.desc}</div>
+          </button>
+        `;
+        }).join('')}
+      </div>
+      <button type="button" class="btn btn-link" id="fd-defense-mode-cancel" style="margin-top:var(--space-2);">Cancel</button>
+    `;
+    el.querySelectorAll('[data-defense-mode]').forEach((btn) => {
+      btn.addEventListener('click', () => setDefenseMode(btn.dataset.defenseMode));
+    });
+    el.querySelector('#fd-defense-mode-cancel').addEventListener('click', () => goTo('overview'));
+  }
+
+  /**
+   * Switching modes now PRESERVES every look — the currently active
+   * defenders get filed away under their own mode before switching, and
+   * whatever was previously configured for the new mode (if anything)
+   * comes back exactly as it was left. Nothing is ever silently lost;
+   * there's no longer a destructive confirm() here because there's
+   * nothing destructive happening.
+   */
+  function setDefenseMode(mode) {
+    if (design.defense.mode) {
+      design.defense.looks[design.defense.mode] = { defenders: design.defense.defenders };
+    }
+    design.defense.mode = mode;
+    design.defense.defenders = design.defense.looks[mode]?.defenders
+      ? structuredClone(design.defense.looks[mode].defenders)
+      : {};
+    emitChange();
+    goTo('defense_manage');
+  }
+
+  function renderDefenseManageControls(el) {
+    const defenders = Object.entries(design.defense.defenders);
+    const mode = design.defense.mode;
+    const configuredModes = DEFENSE_MODES.filter((m) => {
+      if (m.value === mode) return defenders.length > 0;
+      return design.defense.looks[m.value]?.defenders && Object.keys(design.defense.looks[m.value].defenders).length > 0;
+    });
+    const unmatchedOffense = mode === 'man'
+      ? Object.keys(design.positions).filter((s) => !defenders.some(([, d]) => d.assignment === s))
+      : [];
+
+    el.innerHTML = `
+      ${configuredModes.length > 0 ? `
+        <p class="hint" style="margin-bottom:var(--space-2);">Looks built for this play: ${configuredModes.map((m) => m.label).join(', ')} &mdash; switch any time with "Change Look" without losing the others.</p>
+      ` : ''}
+      ${defenders.length > 0 ? `
+        <ul class="roster-list" style="margin-bottom:var(--space-2);">
+          ${defenders.map(([id, d]) => `
+            <li class="row" style="justify-content:space-between;">
+              <span>${escapeHtml(d.label)}${d.assignment ? ' &rarr; ' + escapeHtml(d.assignment) : ''}</span>
+              <button type="button" class="btn btn-link" data-remove-defender="${id}">Remove</button>
+            </li>
+          `).join('')}
+        </ul>
+      ` : '<p class="hint">No defenders placed yet.</p>'}
+      ${mode === 'man' && unmatchedOffense.length > 0 ? `
+        <button type="button" class="btn btn-secondary btn-large" id="fd-auto-match" style="width:100%; margin-bottom:var(--space-2);">
+          &#9889; Auto-Match Defenders (covers ${unmatchedOffense.join(', ')})
+        </button>
+      ` : ''}
+      <div class="row-wrap">
+        <button type="button" class="btn btn-primary" id="fd-add-defender">+ Add Defender</button>
+        <button type="button" class="btn btn-secondary" id="fd-change-defense-mode">Change Look</button>
+        <button type="button" class="btn btn-link" id="fd-defense-done">Done</button>
+      </div>
+    `;
+    el.querySelectorAll('[data-remove-defender]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        delete design.defense.defenders[btn.dataset.removeDefender];
+        emitChange();
+        render();
+      });
+    });
+    const autoMatchBtn = el.querySelector('#fd-auto-match');
+    if (autoMatchBtn) autoMatchBtn.addEventListener('click', autoMatchDefenders);
+    el.querySelector('#fd-add-defender').addEventListener('click', () => { nav.defenderDraft = { label: nextDefenderLabel() }; goTo('defense_configure'); });
+    el.querySelector('#fd-change-defense-mode').addEventListener('click', () => goTo('defense_mode'));
+    el.querySelector('#fd-defense-done').addEventListener('click', () => goTo('overview'));
+  }
+
+  /**
+   * One tap, one defender per uncovered offensive player — "a defender
+   * over WR1, over WR2, over the Center, etc." without placing each one
+   * by hand. Starting position is a short cushion off the line from that
+   * player's own spot, matching the same MAN_COVERAGE_CUSHION direction
+   * defenseAnimation.js uses so the resting position already looks like
+   * real coverage before Watch Play even starts moving them.
+   */
+  function autoMatchDefenders() {
+    const covered = new Set(Object.values(design.defense.defenders).map((d) => d.assignment));
+    Object.entries(design.positions).forEach(([slot, pos]) => {
+      if (covered.has(slot)) return;
+      const id = `def-${Date.now()}-${Math.round(Math.random() * 1000)}-${slot}`;
+      design.defense.defenders[id] = {
+        label: `vs ${slot}`,
+        position: { x: clamp01(pos.x), y: clamp01(pos.y + 0.035) },
+        assignment: slot,
+      };
+    });
+    emitChange();
+    render();
+  }
+
+  function nextDefenderLabel() {
+    const n = Object.keys(design.defense.defenders).length + 1;
+    return `D${n}`;
+  }
+
+  function renderDefenseConfigureControls(el) {
+    const mode = design.defense.mode;
+    const offenseSlots = Object.keys(design.positions);
+    el.innerHTML = `
+      <label class="field" style="margin-bottom:var(--space-2);">
+        <span>Label</span>
+        <input type="text" id="fd-defender-label" value="${escapeAttr(nav.defenderDraft.label)}" autocomplete="off" />
+      </label>
+      ${mode === 'man' ? `
+        <p class="hint" style="margin-bottom:6px;">Matched up on:</p>
+        <div class="row-wrap" id="fd-defender-assign">
+          ${offenseSlots.map((s) => `<button type="button" class="chip ${nav.defenderDraft.assignment === s ? 'selected' : ''}" data-assign="${escapeAttr(s)}">${escapeHtml(s)}</button>`).join('') || '<p class="hint">Place offensive players first.</p>'}
+        </div>
+      ` : ''}
+      ${mode === 'zone' ? `
+        <p class="hint" style="margin-bottom:6px;">Zone responsibility:</p>
+        <div class="row-wrap" id="fd-defender-assign">
+          ${ZONE_LABELS.map((z) => `<button type="button" class="chip ${nav.defenderDraft.assignment === z ? 'selected' : ''}" data-assign="${escapeAttr(z)}">${escapeHtml(z)}</button>`).join('')}
+        </div>
+      ` : ''}
+      ${mode === 'pressure' ? `
+        <p class="hint" style="margin-bottom:6px;">Role:</p>
+        <div class="row-wrap" id="fd-defender-assign">
+          ${PRESSURE_ROLES.map((r) => `<button type="button" class="chip ${nav.defenderDraft.assignment === r ? 'selected' : ''}" data-assign="${escapeAttr(r)}">${escapeHtml(r)}</button>`).join('')}
+        </div>
+      ` : ''}
+      <button type="button" class="btn btn-primary btn-large" id="fd-defender-next" style="width:100%; margin-top:var(--space-2);">Next: Place on Field &rarr;</button>
+      <button type="button" class="btn btn-link" id="fd-defender-cancel">Cancel</button>
+    `;
+    el.querySelector('#fd-defender-label').addEventListener('input', (e) => { nav.defenderDraft.label = e.target.value; });
+    el.querySelectorAll('[data-assign]').forEach((chip) => {
+      chip.addEventListener('click', () => {
+        nav.defenderDraft.assignment = nav.defenderDraft.assignment === chip.dataset.assign ? null : chip.dataset.assign;
+        renderDefenseConfigureControls(el);
+      });
+    });
+    el.querySelector('#fd-defender-next').addEventListener('click', () => goTo('defense_place'));
+    el.querySelector('#fd-defender-cancel').addEventListener('click', () => { nav.defenderDraft = null; goTo('defense_manage'); });
+  }
+
+  function renderDefensePlaceControls(el) {
+    el.innerHTML = `<button type="button" class="btn btn-link" id="fd-defender-place-cancel">Cancel</button>`;
+    el.querySelector('#fd-defender-place-cancel').addEventListener('click', () => { nav.defenderDraft = null; goTo('defense_manage'); });
+  }
+
+  function placeDefender(point) {
+    const id = `def-${Date.now()}-${Math.round(Math.random() * 1000)}`;
+    design.defense.defenders[id] = {
+      label: nav.defenderDraft.label || nextDefenderLabel(),
+      position: point,
+      assignment: nav.defenderDraft.assignment || null,
+    };
+    nav.defenderDraft = null;
+    emitChange();
+    goTo('defense_manage');
+  }
+
   // ---------- WATCH PLAY ----------
 
   function startWatchPlay() {
@@ -719,8 +950,19 @@ export function createFieldDesigner(container, { initialDesign, knownSlots = [],
   }
 
   function renderWatchPlayControls(el) {
+    const availableLooks = DEFENSE_MODES.filter((m) => {
+      if (m.value === design.defense.mode) return true; // always offer the active one
+      return !!design.defense.looks[m.value]?.defenders && Object.keys(design.defense.looks[m.value].defenders).length > 0;
+    });
     el.innerHTML = `
       <div id="fd-watch-banner" style="margin-bottom: var(--space-2); text-align:center;"></div>
+      ${availableLooks.length > 1 ? `
+        <p class="hint" style="text-align:center; margin-bottom:6px;">Switch defense without losing your place:</p>
+        <div class="row-wrap" style="justify-content:center; margin-bottom:var(--space-2);">
+          ${availableLooks.map((m) => `<button type="button" class="chip ${m.value === design.defense.mode ? 'selected' : ''}" data-watch-defense-mode="${m.value}">${m.label}</button>`).join('')}
+        </div>
+      ` : ''}
+      ${design.defense.mode ? `<p class="hint" style="text-align:center; margin-bottom:var(--space-2);">Defender movement (red) is a <b>modeled teaching reaction</b> for ${DEFENSE_MODE_LABELS[design.defense.mode]} — not a guarantee of how a real defense will play it.</p>` : ''}
       <div class="row-wrap">
         <button type="button" class="btn btn-primary btn-large" id="fd-play-pause"></button>
         <button type="button" class="btn btn-secondary btn-large" id="fd-restart">&#8635; Restart / Replay</button>
@@ -728,10 +970,28 @@ export function createFieldDesigner(container, { initialDesign, knownSlots = [],
       </div>
     `;
     updatePlayPauseButtonLabel();
+    el.querySelectorAll('[data-watch-defense-mode]').forEach((chip) => {
+      chip.addEventListener('click', () => switchWatchDefenseMode(chip.dataset.watchDefenseMode));
+    });
     el.querySelector('#fd-play-pause').addEventListener('click', toggleWatchPause);
     el.querySelector('#fd-restart').addEventListener('click', restartWatchPlay);
     el.querySelector('#fd-exit-watch').addEventListener('click', exitWatchPlay);
     updateWatchBanner(anim.watchPlay.lastPhase || (anim.watchPlay.schedule.hasPresnap ? 'presnap' : 'postsnap'));
+  }
+
+  /**
+   * Swaps the active defensive look mid-Watch-Play (or right before
+   * starting it) without touching offense at all — restarts the replay
+   * from the top so the new look's reactions play cleanly from the snap.
+   */
+  function switchWatchDefenseMode(newMode) {
+    if (newMode === design.defense.mode) return;
+    if (design.defense.mode) design.defense.looks[design.defense.mode] = { defenders: design.defense.defenders };
+    design.defense.mode = newMode;
+    design.defense.defenders = design.defense.looks[newMode]?.defenders
+      ? structuredClone(design.defense.looks[newMode].defenders)
+      : {};
+    startWatchPlay();
   }
 
   function runWatchPlayFrame() {
@@ -744,6 +1004,27 @@ export function createFieldDesigner(container, { initialDesign, knownSlots = [],
       const markerEl = elRefs.markers.get(slot);
       if (markerEl) markerEl.setAttribute('transform', `translate(${pos.x * VIEW_W}, ${pos.y * VIEW_H})`);
     });
+
+    if (design.defense.mode) {
+      // Defenders react to the offense's FULL live position set — not
+      // just the ones currently mid-route (frame.positions omits anyone
+      // standing still, e.g. a QB with no drawn route) — so a Man
+      // defender assigned to a stationary player still tracks them
+      // correctly at their true position.
+      const fullOffensePositions = { ...design.positions, ...frame.positions };
+      // A second, slightly-earlier snapshot for MAN mode's reaction lag —
+      // see defenseAnimation.js for why a lagged tracking position is
+      // what makes separation actually visible on a route break.
+      const laggedFrame = computeFrame(design, wp.schedule, Math.max(0, elapsedS - MAN_REACTION_LAG_S));
+      const laggedOffensePositions = { ...design.positions, ...laggedFrame.positions };
+      const elapsedSinceSnapS = elapsedS - wp.schedule.postsnapPhaseStart;
+      const postsnapDurationS = wp.schedule.totalDuration - wp.schedule.postsnapPhaseStart;
+      const defPositions = computeDefensePositions(design.defense, fullOffensePositions, laggedOffensePositions, elapsedSinceSnapS, postsnapDurationS);
+      Object.entries(defPositions).forEach(([id, pos]) => {
+        const markerEl = elRefs.defenderMarkers.get(id);
+        if (markerEl) markerEl.setAttribute('transform', `translate(${pos.x * VIEW_W}, ${pos.y * VIEW_H}) rotate(45)`);
+      });
+    }
 
     if (frame.phaseLabel !== wp.lastPhase) {
       wp.lastPhase = frame.phaseLabel;
@@ -857,6 +1138,23 @@ export function createFieldDesigner(container, { initialDesign, knownSlots = [],
     svg.appendChild(g);
     elRefs.markers.set(slot, g);
     attachMarkerHandlers(g, slot);
+  }
+
+  // Visually distinct from offense on purpose — a crimson square/diamond
+  // vs. offense's charcoal circle — so it's never ambiguous which side a
+  // marker belongs to, even at a glance or small print size. No drag
+  // gesture in V1: defenders are removed and re-added to reposition,
+  // matching "keep placement easy and child-simple" rather than adding a
+  // second gesture system to an already-complex field.
+  function drawDefenderMarker(svg, id, defender) {
+    const pos = defender.position;
+    const g = svgEl('g', { transform: `translate(${pos.x * VIEW_W}, ${pos.y * VIEW_H}) rotate(45)` });
+    g.appendChild(svgEl('rect', { x: -DEFENDER_R * 0.75, y: -DEFENDER_R * 0.75, width: DEFENDER_R * 1.5, height: DEFENDER_R * 1.5, fill: '#7a1f22', stroke: '#e0433f', 'stroke-width': 2.5 }));
+    const label = svgEl('text', { x: 0, y: 5, 'text-anchor': 'middle', 'font-size': 11, 'font-weight': 800, fill: '#fff', transform: 'rotate(-45)' });
+    label.textContent = defender.label;
+    g.appendChild(label);
+    svg.appendChild(g);
+    elRefs.defenderMarkers.set(id, g);
   }
 
   function drawRoute(svg, slot) {
@@ -1036,6 +1334,15 @@ export function createFieldDesigner(container, { initialDesign, knownSlots = [],
       }, { once: true });
     }
 
+    if (nav.screen === 'defense_place') {
+      svg.addEventListener('pointerdown', function onDown(e) {
+        const ctm = svg.getScreenCTM();
+        if (!ctm) return;
+        const pt = svgPointFromClient(svg, ctm.inverse(), e.clientX, e.clientY);
+        placeDefender({ x: clamp01(pt.x / VIEW_W), y: clamp01(pt.y / VIEW_H) });
+      }, { once: true });
+    }
+
     if (nav.screen === 'draw_custom') {
       const start = design.positions[nav.activeSlot];
       let drawn = [{ ...start }];
@@ -1113,7 +1420,17 @@ export function createFieldDesigner(container, { initialDesign, knownSlots = [],
   }
 
   function getDesign() {
-    const clean = { positions: { ...design.positions }, routes: {} };
+    // Make sure the currently active mode's live edits are reflected in
+    // .looks before saving — setDefenseMode only files a mode away when
+    // SWITCHING away from it, so without this, edits made to the
+    // still-active mode since the last switch would be saved into
+    // .defenders (correctly) but NOT into .looks[activeMode], and would
+    // look stale the next time this play is reopened and that mode is
+    // reselected.
+    if (design.defense.mode) {
+      design.defense.looks[design.defense.mode] = { defenders: design.defense.defenders };
+    }
+    const clean = { positions: { ...design.positions }, routes: {}, defense: structuredClone(design.defense) };
     Object.entries(design.routes).forEach(([slot, route]) => {
       const { _liveNewPoints, _liveEndPoint, _liveEnd, _livePoints, ...rest } = route;
       clean.routes[slot] = rest;

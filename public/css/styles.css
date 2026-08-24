@@ -61,12 +61,19 @@ html, body {
   font-size: 18px;
   line-height: 1.4;
   -webkit-tap-highlight-color: transparent;
+  /* Safety net: no single element anywhere in the app should ever be able
+     to force the WHOLE page to scroll sideways and shift every card off
+     screen. If something still overflows its container, it should clip or
+     scroll locally (see .field / input min-width:0 below), never drag the
+     entire viewport with it. */
+  overflow-x: hidden;
 }
 
 #app {
   max-width: 480px;
   margin: 0 auto;
   min-height: 100vh;
+  overflow-x: hidden;
 }
 
 .screen {
@@ -170,6 +177,12 @@ h2 {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  /* Same fix as .play-card-main below: as a flex child (e.g. two .field
+     elements side by side in a .row, like Wristband Code + Side), this
+     defaults to min-width:auto, which refuses to shrink below its content
+     size and forces the row — and without the overflow-x:hidden above,
+     the whole page — wider than the screen. */
+  min-width: 0;
 }
 
 .field span {
@@ -189,6 +202,12 @@ input, select, textarea {
   background: var(--sx-charcoal-2);
   color: var(--sx-white);
   min-height: var(--tap-min);
+  /* <select> in particular has a native min-content width (its longest
+     option's text) that some mobile browsers honor even inside a flex
+     parent that's trying to shrink it — width:100% + min-width:0 forces
+     it to actually respect its container instead of pushing past it. */
+  width: 100%;
+  min-width: 0;
 }
 
 textarea {

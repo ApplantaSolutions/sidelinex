@@ -1,0 +1,8 @@
+[build]
+  functions = "netlify/functions"
+  # No static site to publish — this Netlify site exists purely to host
+  # the 4 functions. Firebase Hosting continues to serve the actual app.
+  publish = "public-empty"
+
+[functions]
+  node_bundler = "esbuild"

@@ -12,19 +12,19 @@ const { initializeApp } = await import(
 const { getAuth, signInWithCustomToken, onAuthStateChanged, signOut } = await import(
   `https://www.gstatic.com/firebasejs/${SDK_VERSION}/firebase-auth.js`
 );
-const { getFirestore, doc, getDoc, setDoc, collection, query, where, orderBy, getDocs } = await import(
+const { getFirestore, doc, getDoc, setDoc, deleteDoc, collection, query, where, orderBy, getDocs } = await import(
   `https://www.gstatic.com/firebasejs/${SDK_VERSION}/firebase-firestore.js`
 );
-const { getFunctions, httpsCallable } = await import(
-  `https://www.gstatic.com/firebasejs/${SDK_VERSION}/firebase-functions.js`
-);
+// No firebase-functions import — the 4 auth-critical Cloud Functions are
+// served from Netlify Functions instead (see auth.js), since the Firebase
+// Blaze billing account is blocked. Firestore/Auth/Hosting stay on
+// Firebase as normal; only those 4 functions moved.
 
 import { firebaseConfig } from './firebase-config.js';
 
 export const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 export const db = getFirestore(app);
-export const functions = getFunctions(app);
 
 export {
   signInWithCustomToken,
@@ -33,10 +33,10 @@ export {
   doc,
   getDoc,
   setDoc,
+  deleteDoc,
   collection,
   query,
   where,
   orderBy,
   getDocs,
-  httpsCallable,
 };
