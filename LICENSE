@@ -1,0 +1,30 @@
+SidelineX — Proprietary License
+Copyright (c) 2026 Rudolph Miller. All rights reserved.
+
+This source code is published for the sole purpose of portfolio review and
+technical evaluation (for example, by prospective employers or collaborators).
+
+You MAY:
+  - view and read this source code;
+  - clone the repository and run it locally for personal evaluation, including
+    the offline preview (`?dev=1`).
+
+You MAY NOT, without the prior written permission of the copyright holder:
+  - use this software or any substantial part of it in a product or service,
+    commercial or non-commercial;
+  - copy, modify, merge, publish, distribute, sublicense, or sell copies of
+    this software or derivative works;
+  - deploy a hosted instance of this software for any audience other than
+    yourself.
+
+SidelineX is an active project that may be developed into a commercial product.
+No open-source license is granted, and none should be inferred from this
+repository being publicly readable.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY CLAIM, DAMAGES, OR
+OTHER LIABILITY ARISING FROM, OUT OF, OR IN CONNECTION WITH THE SOFTWARE OR
+THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+For any permission beyond the scope of this license, contact the copyright
+holder.

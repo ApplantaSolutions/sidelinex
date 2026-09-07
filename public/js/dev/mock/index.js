@@ -79,6 +79,21 @@ seedPlay(
   {
     WR1: { route: 'Go', roleClassification: 'decoy_clearout', job: 'Get vertical immediately and force the defender to respect the deep route.', why: 'Opens underneath space for another receiver.', key: "Don't slow down just because you're not the primary target." },
     Center: { route: 'Drag', roleClassification: 'primary_target', job: 'Cross the field underneath at 5 yards.', why: 'Designed target once the deep routes clear the middle.', key: 'Sell the block first, then release.' },
+  },
+  {
+    positions: {
+      QB: { x: 0.5, y: 0.8 },
+      Center: { x: 0.5, y: 0.72 },
+      WR1: { x: 0.14, y: 0.72 },
+      WR2: { x: 0.72, y: 0.72 },
+      WR4: { x: 0.88, y: 0.72 },
+    },
+    routes: {
+      WR1: { points: [{ x: 0.14, y: 0.72 }, { x: 0.15, y: 0.16 }], designation: 'decoy' },
+      Center: { points: [{ x: 0.5, y: 0.72 }, { x: 0.5, y: 0.64 }, { x: 0.16, y: 0.6 }], designation: 'primary' },
+      WR2: { points: [{ x: 0.72, y: 0.72 }, { x: 0.72, y: 0.5 }, { x: 0.52, y: 0.4 }], designation: 'secondary' },
+      WR4: { points: [{ x: 0.88, y: 0.72 }, { x: 0.88, y: 0.58 }, { x: 0.74, y: 0.56 }] },
+    },
   }
 );
 
@@ -99,16 +114,30 @@ seedPlay(
   },
   {
     Amani: { route: 'Jet Sweep', roleClassification: 'ball_carrier', job: 'Take the handoff and get to the edge fast.', why: 'Primary ball carrier on this call.', key: 'Press the hole, then bounce outside if it closes.' },
+  },
+  {
+    positions: {
+      QB: { x: 0.5, y: 0.8 },
+      Center: { x: 0.5, y: 0.72 },
+      Amani: { x: 0.3, y: 0.75 },
+      WR1: { x: 0.14, y: 0.72 },
+      WR2: { x: 0.82, y: 0.72 },
+    },
+    routes: {
+      Amani: { points: [{ x: 0.3, y: 0.75 }, { x: 0.48, y: 0.78 }, { x: 0.78, y: 0.7 }, { x: 0.9, y: 0.55 }], designation: 'primary' },
+      WR1: { points: [{ x: 0.14, y: 0.72 }, { x: 0.3, y: 0.7 }] },
+      WR2: { points: [{ x: 0.82, y: 0.72 }, { x: 0.82, y: 0.6 }] },
+    },
   }
 );
 
-function seedPlay(playData, assignments) {
+function seedPlay(playData, assignments, fieldDesign = null) {
   const id = `dev-play-${nextPlayId++}`;
   const now = new Date().toISOString();
   const versionId = `${id}-v1`;
   state.plays.push({ id, ...playData, activeVersionId: versionId, createdAt: now, updatedAt: now });
   state.playVersions[id] = {
-    [versionId]: { id: versionId, versionNumber: 1, changelogNote: 'Initial version', diagramUrl: null, assignments, fieldDesign: null, createdAt: now },
+    [versionId]: { id: versionId, versionNumber: 1, changelogNote: 'Initial version', diagramUrl: null, assignments, fieldDesign, createdAt: now },
   };
 }
 

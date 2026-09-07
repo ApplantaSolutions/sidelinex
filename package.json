@@ -1,0 +1,22 @@
+{
+  "name": "sidelinex",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Mobile-first coaching command center for NFL FLAG football. Firebase + Netlify Functions; deterministic Sideline Advisor with an optional AI explanation layer.",
+  "license": "SEE LICENSE IN LICENSE",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node --experimental-test-module-mocks --test \"public/js/**/*.test.js\"",
+    "test:client": "node --experimental-test-module-mocks --test \"public/js/**/*.test.js\"",
+    "test:netlify": "npm --prefix netlify-functions ci && npm --prefix netlify-functions test",
+    "test:functions": "npm --prefix functions ci && node --test functions/test/helpers.test.js",
+    "test:all": "npm run test:client && npm run test:netlify && npm run test:functions",
+    "preview": "cd public && python -m http.server 8080",
+    "deploy:hosting": "firebase deploy --only hosting --project sidelinex-beta",
+    "deploy:rules": "firebase deploy --only firestore:rules --project sidelinex-beta",
+    "deploy:functions": "cd netlify-functions && netlify deploy --prod"
+  }
+}

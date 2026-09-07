@@ -12,6 +12,7 @@ ui-debug.log
 # Environment / secrets (Firebase client config is public-safe, but keep a real .env pattern available)
 .env
 .env.local
+.env.*
 
 # OS/editor
 .DS_Store

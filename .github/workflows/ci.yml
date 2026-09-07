@@ -1,0 +1,60 @@
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  client-tests:
+    # Pure-logic client tests — DOM-free, zero dependencies, no install.
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: ["20", "22"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+      - name: Client pure-logic + auth call-logic tests
+        run: node --experimental-test-module-mocks --test "public/js/**/*.test.js"
+
+  function-tests:
+    # The Netlify Functions and the (currently-unused) Cloud Functions helpers.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Netlify Functions tests
+        run: |
+          npm --prefix netlify-functions ci
+          npm --prefix netlify-functions test
+      - name: Cloud Functions helper tests
+        run: |
+          npm --prefix functions ci
+          node --test functions/test/helpers.test.js
+
+  secret-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: No committed secrets
+        run: |
+          set -e
+          # Real Firebase service-account / private keys, Anthropic keys, etc.
+          if git grep -nE "BEGIN [A-Z ]*PRIVATE KEY|\"private_key\"|sk-ant-[A-Za-z0-9_-]{20}|iam\.gserviceaccount\.com" -- ':!.github' ':!*.md'; then
+            echo "::error::possible secret committed"; exit 1
+          fi
+          # The client Firebase config must stay a placeholder in this repo.
+          if git grep -nE "apiKey: *'AIza[0-9A-Za-z_-]{30}" -- public/js/firebase-config.js; then
+            echo "::error::a real Firebase web API key is committed in firebase-config.js"; exit 1
+          fi
+          echo "secret scan: clean"
