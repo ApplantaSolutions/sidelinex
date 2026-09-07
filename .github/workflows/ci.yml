@@ -12,11 +12,12 @@ permissions:
 jobs:
   client-tests:
     # Pure-logic client tests — DOM-free, zero dependencies, no install.
+    # Node 22+: `node --test` glob-pattern arguments are stable there.
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        node-version: ["20", "22"]
+        node-version: ["22", "24"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

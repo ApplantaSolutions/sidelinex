@@ -140,7 +140,7 @@ described above).
 ## Tests
 
 ```bash
-npm test                       # ~330 client pure-logic + auth call-logic tests, zero deps
+npm test                       # ~309 client pure-logic + auth call-logic tests, zero deps (Node 22+)
 npm run test:netlify           # Netlify Functions (installs bcryptjs + firebase-admin)
 npm run test:functions         # legacy Cloud Functions helpers
 ```

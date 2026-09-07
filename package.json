@@ -6,7 +6,7 @@
   "description": "Mobile-first coaching command center for NFL FLAG football. Firebase + Netlify Functions; deterministic Sideline Advisor with an optional AI explanation layer.",
   "license": "SEE LICENSE IN LICENSE",
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "scripts": {
     "test": "node --experimental-test-module-mocks --test \"public/js/**/*.test.js\"",
